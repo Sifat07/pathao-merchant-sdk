@@ -1,10 +1,13 @@
 # Pathao Merchant API SDK
 
-[![npm version](https://badge.fury.io/js/%40sifat07%2Fpathao-merchant-sdk.svg)](https://badge.fury.io/js/%40sifat07%2Fpathao-merchant-sdk)
+[![npm version](https://badge.fury.io/js/pathao-merchant-sdk.svg)](https://badge.fury.io/js/pathao-merchant-sdk)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. This community package provides a clean, type-safe interface for all Pathao Merchant API operations including order management, store management, price calculation, and more.
+
+[![npm package](https://img.shields.io/npm/v/pathao-merchant-sdk?style=flat-square)](https://www.npmjs.com/package/pathao-merchant-sdk)
+[![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk?style=flat-square)](https://www.npmjs.com/package/pathao-merchant-sdk)
 
 > **Disclaimer**: This is not an official package from Pathao. It's a community-maintained SDK based on the public Pathao Merchant API documentation.
 
@@ -23,17 +26,17 @@ An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. T
 ## Installation
 
 ```bash
-npm install @sifat07/pathao-merchant-sdk
+npm install pathao-merchant-sdk
 # or
-yarn add @sifat07/pathao-merchant-sdk
+yarn add pathao-merchant-sdk
 # or
-pnpm add @sifat07/pathao-merchant-sdk
+pnpm add pathao-merchant-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { PathaoApiService, DeliveryType, ItemType } from '@sifat07/pathao-merchant-sdk';
+import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
 
 // Initialize the SDK
 const pathao = new PathaoApiService({
@@ -169,7 +172,7 @@ console.log('Available areas:', areas.data);
 The SDK includes built-in validation helpers:
 
 ```typescript
-import { PathaoApiService } from '@sifat07/pathao-merchant-sdk';
+import { PathaoApiService } from 'pathao-merchant-sdk';
 
 // Validate phone number
 const isValidPhone = PathaoApiService.validatePhoneNumber('01712345678'); // true
@@ -262,7 +265,7 @@ PATHAO_PASSWORD=your-password
 ### Complete Order Flow
 
 ```typescript
-import { PathaoApiService, DeliveryType, ItemType } from '@sifat07/pathao-merchant-sdk';
+import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
 
 async function createDeliveryOrder() {
   const pathao = new PathaoApiService({

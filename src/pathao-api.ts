@@ -17,20 +17,20 @@
  * - City, zone, and area management
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosError, AxiosInstance } from 'axios';
 import {
-  PathaoConfig,
+  PathaoAreaResponse,
   PathaoAuthResponse,
+  PathaoCityResponse,
+  PathaoConfig,
+  PathaoError,
   PathaoOrderRequest,
   PathaoOrderResponse,
-  PathaoStoreRequest,
-  PathaoStoreResponse,
+  PathaoOrderStatusResponse,
   PathaoPriceRequest,
   PathaoPriceResponse,
-  PathaoCityResponse,
-  PathaoOrderStatusResponse,
-  PathaoAreaResponse,
-  PathaoError
+  PathaoStoreRequest,
+  PathaoStoreResponse,
 } from './types';
 
 export class PathaoApiService {
@@ -44,7 +44,7 @@ export class PathaoApiService {
     this.config = {
       baseURL: 'https://api-hermes.pathao.com',
       timeout: 30000,
-      ...config
+      ...config,
     };
 
     this.pathaoClient = axios.create({
@@ -95,7 +95,7 @@ export class PathaoApiService {
         client_secret: this.config.clientSecret,
         username: this.config.username,
         password: this.config.password,
-        grant_type: 'password'
+        grant_type: 'password',
       });
 
       this.accessToken = response.data.access_token;
@@ -119,7 +119,7 @@ export class PathaoApiService {
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
         refresh_token: this.refreshToken,
-        grant_type: 'refresh_token'
+        grant_type: 'refresh_token',
       });
 
       this.accessToken = response.data.access_token;
@@ -155,7 +155,7 @@ export class PathaoApiService {
         delivery_type: orderData.delivery_type,
         item_type: orderData.item_type,
         item_weight: orderData.item_weight,
-        amount_to_collect: orderData.amount_to_collect
+        amount_to_collect: orderData.amount_to_collect,
       });
       
       const response = await this.pathaoClient.post<PathaoOrderResponse>('/aladdin/api/v1/orders', orderData);
@@ -163,7 +163,7 @@ export class PathaoApiService {
       console.log('Pathao order created successfully:', {
         consignment_id: response.data.data?.consignment_id,
         invoice_id: response.data.data?.invoice_id,
-        status: response.data.data?.status
+        status: response.data.data?.status,
       });
       
       return response.data;
@@ -172,7 +172,7 @@ export class PathaoApiService {
         error: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        orderData: orderData
+        orderData,
       });
       
       const errorMessage = this.getErrorMessage(error);
@@ -188,7 +188,7 @@ export class PathaoApiService {
         contact_name: storeData.contact_name,
         city_id: storeData.city_id,
         zone_id: storeData.zone_id,
-        area_id: storeData.area_id
+        area_id: storeData.area_id,
       });
       
       const response = await this.pathaoClient.post<PathaoStoreResponse>('/aladdin/api/v1/stores', storeData);
@@ -196,7 +196,7 @@ export class PathaoApiService {
       console.log('Pathao store created successfully:', {
         store_id: response.data.data?.store_id,
         name: response.data.data?.name,
-        status: response.data.data?.status
+        status: response.data.data?.status,
       });
       
       return response.data;
@@ -205,7 +205,7 @@ export class PathaoApiService {
         error: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        storeData: storeData
+        storeData,
       });
       
       const errorMessage = this.getErrorMessage(error);
@@ -235,7 +235,7 @@ export class PathaoApiService {
         delivery_type: priceData.delivery_type,
         recipient_city: priceData.recipient_city,
         recipient_zone: priceData.recipient_zone,
-        recipient_area: priceData.recipient_area
+        recipient_area: priceData.recipient_area,
       });
       
       const response = await this.pathaoClient.post<PathaoPriceResponse>('/aladdin/api/v1/merchant/price-check', priceData);
@@ -243,7 +243,7 @@ export class PathaoApiService {
       console.log('Pathao price calculated:', {
         delivery_charge: response.data.data?.delivery_charge,
         cod_charge: response.data.data?.cod_charge,
-        total_charge: response.data.data?.total_charge
+        total_charge: response.data.data?.total_charge,
       });
       
       return response.data;
@@ -252,7 +252,7 @@ export class PathaoApiService {
         error: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        priceData: priceData
+        priceData,
       });
       
       const errorMessage = this.getErrorMessage(error);
