@@ -1,20 +1,20 @@
-# Pathao Merchant SDK v1.1.0
+# Pathao Merchant SDK v1.2.0
 
 ## 🚀 Release Information
 
-- **Version**: 1.1.0
+- **Version**: 1.2.0
 - **Release Type**: Minor
-- **Date**: 2025-10-01
+- **Date**: 2025-10-02
 - **Package**: [pathao-merchant-sdk](https://www.npmjs.com/package/pathao-merchant-sdk)
 
 ## 📦 Installation
 
 ```bash
-npm install pathao-merchant-sdk@1.1.0
+npm install pathao-merchant-sdk@1.2.0
 # or
-yarn add pathao-merchant-sdk@1.1.0
+yarn add pathao-merchant-sdk@1.2.0
 # or
-pnpm add pathao-merchant-sdk@1.1.0
+pnpm add pathao-merchant-sdk@1.2.0
 ```
 
 ## 🔗 Links

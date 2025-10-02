@@ -7,6 +7,7 @@ const mockedAxios = require('axios');
 describe('PathaoApiService', () => {
   let pathaoService: PathaoApiService;
   const mockConfig = {
+    baseURL: 'https://api-hermes.pathao.com',
     clientId: 'test-client-id',
     clientSecret: 'test-client-secret',
     username: 'test-username',
@@ -20,6 +21,9 @@ describe('PathaoApiService', () => {
       get: jest.fn(),
       interceptors: {
         request: {
+          use: jest.fn()
+        },
+        response: {
           use: jest.fn()
         }
       }
@@ -35,6 +39,7 @@ describe('PathaoApiService', () => {
     it('should throw error with missing credentials', () => {
       expect(() => {
         new PathaoApiService({
+          baseURL: 'https://api-hermes.pathao.com',
           clientId: '',
           clientSecret: 'test',
           username: 'test',
@@ -139,25 +144,9 @@ describe('PathaoApiService', () => {
           message: 'Order created successfully',
           data: {
             consignment_id: 'CONS123',
-            invoice_id: 'INV123',
             merchant_order_id: 'ORDER123',
-            store_id: 123,
-            recipient_name: 'John Doe',
-            recipient_phone: '01712345678',
-            recipient_address: '123 Main Street, Dhanmondi',
-            recipient_city: 'Dhaka',
-            recipient_zone: 'Dhanmondi',
-            recipient_area: 'Dhanmondi 27',
-            delivery_type: 'Normal',
-            item_type: 'Parcel',
-            item_quantity: 1,
-            item_weight: 1.0,
-            item_description: '',
-            amount_to_collect: 500,
-            special_instruction: '',
-            status: 'Pending',
-            created_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z'
+            order_status: 'Pending',
+            delivery_fee: 80
           }
         }
       };
@@ -217,17 +206,14 @@ describe('PathaoApiService', () => {
           code: 200,
           message: 'Price calculated successfully',
           data: {
-            store_id: 123,
-            item_type: 'Parcel',
-            item_weight: 1.0,
-            delivery_type: 'Normal',
-            recipient_city: 'Dhaka',
-            recipient_zone: 'Dhanmondi',
-            recipient_area: 'Dhanmondi 27',
-            delivery_charge: 50,
-            cod_charge: 10,
-            total_charge: 60,
-            currency: 'BDT'
+            price: 50,
+            discount: 0,
+            promo_discount: 0,
+            plan_id: 69,
+            cod_enabled: 1,
+            cod_percentage: 0.01,
+            additional_charge: 0,
+            final_price: 50
           }
         }
       };
@@ -237,7 +223,7 @@ describe('PathaoApiService', () => {
       const result = await pathaoService.calculatePrice(mockPriceData);
 
       expect(result).toEqual(mockResponse.data);
-      expect(mockedAxios.create().post).toHaveBeenCalledWith('/aladdin/api/v1/merchant/price-check', mockPriceData);
+      expect(mockedAxios.create().post).toHaveBeenCalledWith('/aladdin/api/v1/merchant/price-plan', mockPriceData);
     });
   });
 
@@ -248,24 +234,18 @@ describe('PathaoApiService', () => {
           type: 'success',
           code: 200,
           message: 'Cities fetched successfully',
-          data: [
-            {
-              city_id: 1,
-              city_name: 'Dhaka',
-              zone_list: [
-                {
-                  zone_id: 1,
-                  zone_name: 'Dhanmondi',
-                  area_list: [
-                    {
-                      area_id: 1,
-                      area_name: 'Dhanmondi 27'
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
+          data: {
+            data: [
+              {
+                city_id: 1,
+                city_name: 'Dhaka'
+              },
+              {
+                city_id: 2,
+                city_name: 'Chittagong'
+              }
+            ]
+          }
         }
       };
 
@@ -274,7 +254,152 @@ describe('PathaoApiService', () => {
       const result = await pathaoService.getCities();
 
       expect(result).toEqual(mockResponse.data);
-      expect(mockedAxios.create().get).toHaveBeenCalledWith('/aladdin/api/v1/cities');
+      expect(mockedAxios.create().get).toHaveBeenCalledWith('/aladdin/api/v1/city-list');
+    });
+  });
+
+  describe('getZones', () => {
+    it('should fetch zones for a city successfully', async () => {
+      const mockResponse = {
+        data: {
+          type: 'success',
+          code: 200,
+          message: 'Zone list fetched',
+          data: {
+            data: [
+              {
+                zone_id: 298,
+                zone_name: '60 feet'
+              },
+              {
+                zone_id: 1070,
+                zone_name: 'Abdullahpur Uttara'
+              }
+            ]
+          }
+        }
+      };
+
+      mockedAxios.create().get.mockResolvedValue(mockResponse);
+
+      const result = await pathaoService.getZones(1);
+
+      expect(result).toEqual(mockResponse.data);
+      expect(mockedAxios.create().get).toHaveBeenCalledWith('/aladdin/api/v1/cities/1/zone-list');
+    });
+  });
+
+  describe('getAreas', () => {
+    it('should fetch areas for a zone successfully', async () => {
+      const mockResponse = {
+        data: {
+          type: 'success',
+          code: 200,
+          message: 'Area list fetched',
+          data: {
+            data: [
+              {
+                area_id: 37,
+                area_name: 'Bonolota',
+                home_delivery_available: true,
+                pickup_available: true
+              },
+              {
+                area_id: 3,
+                area_name: 'Road 03',
+                home_delivery_available: true,
+                pickup_available: true
+              }
+            ]
+          }
+        }
+      };
+
+      mockedAxios.create().get.mockResolvedValue(mockResponse);
+
+      const result = await pathaoService.getAreas(298);
+
+      expect(result).toEqual(mockResponse.data);
+      expect(mockedAxios.create().get).toHaveBeenCalledWith('/aladdin/api/v1/zones/298/area-list');
+    });
+  });
+
+  describe('getOrderStatus', () => {
+    it('should fetch order status successfully', async () => {
+      const mockResponse = {
+        data: {
+          type: 'success',
+          code: 200,
+          message: 'Order info',
+          data: {
+            consignment_id: 'CONS123',
+            merchant_order_id: 'ORDER123',
+            order_status: 'Pending',
+            order_status_slug: 'Pending',
+            updated_at: '2024-11-20 15:11:40',
+            invoice_id: null
+          }
+        }
+      };
+
+      mockedAxios.create().get.mockResolvedValue(mockResponse);
+
+      const result = await pathaoService.getOrderStatus('CONS123');
+
+      expect(result).toEqual(mockResponse.data);
+      expect(mockedAxios.create().get).toHaveBeenCalledWith('/aladdin/api/v1/orders/CONS123/info');
+    });
+  });
+
+  describe('createBulkOrder', () => {
+    it('should create bulk orders successfully', async () => {
+      const mockOrders = [
+        {
+          store_id: 123,
+          merchant_order_id: 'ORDER1',
+          recipient_name: 'John Doe',
+          recipient_phone: '01712345678',
+          recipient_address: '123 Main Street, Dhanmondi',
+          delivery_type: DeliveryType.NORMAL,
+          item_type: ItemType.PARCEL,
+          item_quantity: 1,
+          item_weight: 1.0,
+          amount_to_collect: 500
+        }
+      ];
+
+      const mockResponse = {
+        data: {
+          message: 'Your bulk order creation request is accepted,<br>  please wait some time to complete order creation.',
+          type: 'success',
+          code: 202,
+          data: true
+        }
+      };
+
+      mockedAxios.create().post.mockResolvedValue(mockResponse);
+
+      const result = await pathaoService.createBulkOrder(mockOrders);
+
+      expect(result).toEqual(mockResponse.data);
+      expect(mockedAxios.create().post).toHaveBeenCalledWith('/aladdin/api/v1/orders/bulk', { orders: mockOrders });
+    });
+  });
+
+  describe('clearAuth', () => {
+    it('should clear authentication state', () => {
+      // Set some auth state
+      pathaoService['accessToken'] = 'test-token';
+      pathaoService['refreshToken'] = 'test-refresh';
+      pathaoService['isAuthenticating'] = true;
+
+      pathaoService.clearAuth();
+
+      expect(pathaoService['accessToken']).toBeNull();
+      expect(pathaoService['refreshToken']).toBeNull();
+      expect(pathaoService['isAuthenticating']).toBeFalsy();
+      expect(pathaoService['authPromise']).toBeNull();
+      expect(pathaoService['requestQueue']).toEqual([]);
     });
   });
 });

@@ -8,11 +8,12 @@
  * 4. Track order status
  */
 
-import { PathaoApiService, DeliveryType, ItemType, StoreType } from '../src/index';
+import { PathaoApiService, DeliveryType, ItemType } from '../src/index';
 
 async function basicUsageExample() {
   // Initialize the Pathao service
   const pathao = new PathaoApiService({
+    baseURL: process.env.PATHAO_BASE_URL!,
     clientId: process.env.PATHAO_CLIENT_ID!,
     clientSecret: process.env.PATHAO_CLIENT_SECRET!,
     username: process.env.PATHAO_USERNAME!,
@@ -25,10 +26,19 @@ async function basicUsageExample() {
     // 1. Get available cities and areas
     console.log('📍 Fetching cities and areas...');
     const cities = await pathao.getCities();
-    console.log('Available cities:', cities.data.length);
+    console.log('Available cities:', cities.data.data.length);
 
-    const areas = await pathao.getAreas();
-    console.log('Available areas:', areas.data.length);
+    // Get zones for first city
+    if (cities.data.data.length > 0) {
+      const zones = await pathao.getZones(cities.data.data[0].city_id);
+      console.log('Available zones for', cities.data.data[0].city_name, ':', zones.data.data.length);
+      
+      // Get areas for first zone
+      if (zones.data.data.length > 0) {
+        const areas = await pathao.getAreas(zones.data.data[0].zone_id);
+        console.log('Available areas for', zones.data.data[0].zone_name, ':', areas.data.data.length);
+      }
+    }
 
     // 2. Calculate delivery price
     console.log('\n💰 Calculating delivery price...');
@@ -43,10 +53,13 @@ async function basicUsageExample() {
     });
 
     console.log('Price calculation result:', {
-      delivery_charge: price.data.delivery_charge,
-      cod_charge: price.data.cod_charge,
-      total_charge: price.data.total_charge,
-      currency: price.data.currency
+      price: price.data.price,
+      discount: price.data.discount,
+      promo_discount: price.data.promo_discount,
+      cod_enabled: price.data.cod_enabled,
+      cod_percentage: price.data.cod_percentage,
+      additional_charge: price.data.additional_charge,
+      final_price: price.data.final_price
     });
 
     // 3. Create a delivery order
@@ -67,14 +80,15 @@ async function basicUsageExample() {
 
     console.log('Order created successfully:', {
       consignment_id: order.data.consignment_id,
-      invoice_id: order.data.invoice_id,
-      status: order.data.status
+      merchant_order_id: order.data.merchant_order_id,
+      order_status: order.data.order_status,
+      delivery_fee: order.data.delivery_fee
     });
 
     // 4. Track order status
     console.log('\n🔍 Tracking order status...');
     const status = await pathao.getOrderStatus(order.data.consignment_id);
-    console.log('Current order status:', status.data.status);
+    console.log('Current order status:', status.data.order_status);
 
     console.log('\n✅ Example completed successfully!');
 

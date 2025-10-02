@@ -3,8 +3,9 @@
  * 
  * Official API Details:
  * - Authentication: OAuth2 with client_id, client_secret, username, password
- * - Live URL: https://api-hermes.pathao.com
  * - All endpoints use /aladdin/api/v1/ prefix
+ * - Base URL can be set via PATHAO_BASE_URL environment variable or constructor config
+ * - Timeout can be set via PATHAO_TIMEOUT environment variable or constructor config
  */
 
 // Official Pathao API Authentication Response
@@ -37,14 +38,15 @@ export interface PathaoOrderRequest {
 
 // Official Pathao Store Creation Request
 export interface PathaoStoreRequest {
-  name: string;
-  contact_name: string;
-  contact_number: string;
-  address: string;
+  name: string;                        // 3-50 characters
+  contact_name: string;                // 3-50 characters
+  contact_number: string;              // 11 characters
+  secondary_contact?: string;          // Optional - 11 characters
+  otp_number?: string;                 // Optional - OTP for orders
+  address: string;                     // 15-120 characters
   city_id: number;
   zone_id: number;
   area_id: number;
-  store_type: number;                  // 1 (Pickup Point), 2 (Service Point)
 }
 
 // Official Pathao Order Response
@@ -54,25 +56,9 @@ export interface PathaoOrderResponse {
   message: string;
   data: {
     consignment_id: string;
-    invoice_id: string;
     merchant_order_id: string;
-    store_id: number;
-    recipient_name: string;
-    recipient_phone: string;
-    recipient_address: string;
-    recipient_city: string;
-    recipient_zone: string;
-    recipient_area: string;
-    delivery_type: string;
-    item_type: string;
-    item_quantity: number;
-    item_weight: number;
-    item_description: string;
-    amount_to_collect: number;
-    special_instruction: string;
-    status: string;
-    created_at: string;
-    updated_at: string;
+    order_status: string;
+    delivery_fee: number;
   };
 }
 
@@ -83,17 +69,14 @@ export interface PathaoStoreResponse {
   message: string;
   data: {
     store_id: number;
-    name: string;
-    contact_name: string;
-    contact_number: string;
-    address: string;
+    store_name: string;
+    store_address: string;
+    is_active: number;                 // 1 for active, 0 for deactivated
     city_id: number;
     zone_id: number;
-    area_id: number;
-    store_type: number;
-    status: string;
-    created_at: string;
-    updated_at: string;
+    hub_id: number;
+    is_default_store: boolean;
+    is_default_return_store: boolean;
   };
 }
 
@@ -114,17 +97,14 @@ export interface PathaoPriceResponse {
   code: number;
   message: string;
   data: {
-    store_id: number;
-    item_type: string;
-    item_weight: number;
-    delivery_type: string;
-    recipient_city: string;
-    recipient_zone: string;
-    recipient_area: string;
-    delivery_charge: number;
-    cod_charge: number;
-    total_charge: number;
-    currency: string;
+    price: number;                     // Calculated price for given item
+    discount: number;                  // Discount for the given item
+    promo_discount: number;           // Promo discount for the given item
+    plan_id: number;                  // Price plan id for the given item
+    cod_enabled: number;              // 1 if COD enabled, 0 if not
+    cod_percentage: number;           // Cash on delivery percentage
+    additional_charge: number;        // If there is any additional charge
+    final_price: number;              // Your final price for the given item
   };
 }
 
@@ -133,18 +113,12 @@ export interface PathaoCityResponse {
   type: string;
   code: number;
   message: string;
-  data: Array<{
-    city_id: number;
-    city_name: string;
-    zone_list: Array<{
-      zone_id: number;
-      zone_name: string;
-      area_list: Array<{
-        area_id: number;
-        area_name: string;
-      }>;
+  data: {
+    data: Array<{
+      city_id: number;
+      city_name: string;
     }>;
-  }>;
+  };
 }
 
 // Official Pathao Order Status Response
@@ -154,26 +128,24 @@ export interface PathaoOrderStatusResponse {
   message: string;
   data: {
     consignment_id: string;
-    invoice_id: string;
     merchant_order_id: string;
-    store_id: number;
-    recipient_name: string;
-    recipient_phone: string;
-    recipient_address: string;
-    recipient_city: string;
-    recipient_zone: string;
-    recipient_area: string;
-    delivery_type: string;
-    item_type: string;
-    item_quantity: number;
-    item_weight: number;
-    item_description: string;
-    amount_to_collect: number;
-    special_instruction: string;
-    status: string;
-    status_updated_at: string;
-    created_at: string;
+    order_status: string;
+    order_status_slug: string;
     updated_at: string;
+    invoice_id: string | null;
+  };
+}
+
+// Official Pathao Zone Response
+export interface PathaoZoneResponse {
+  type: string;
+  code: number;
+  message: string;
+  data: {
+    data: Array<{
+      zone_id: number;
+      zone_name: string;
+    }>;
   };
 }
 
@@ -182,14 +154,14 @@ export interface PathaoAreaResponse {
   type: string;
   code: number;
   message: string;
-  data: Array<{
-    area_id: number;
-    area_name: string;
-    zone_id: number;
-    zone_name: string;
-    city_id: number;
-    city_name: string;
-  }>;
+  data: {
+    data: Array<{
+      area_id: number;
+      area_name: string;
+      home_delivery_available: boolean;
+      pickup_available: boolean;
+    }>;
+  };
 }
 
 // Configuration options for PathaoApiService
@@ -198,7 +170,7 @@ export interface PathaoConfig {
   clientSecret: string;
   username: string;
   password: string;
-  baseURL?: string;
+  baseURL: string;
   timeout?: number;
 }
 
@@ -223,8 +195,8 @@ export enum ItemType {
   PARCEL = 2
 }
 
-// Store types enum
-export enum StoreType {
-  PICKUP_POINT = 1,
-  SERVICE_POINT = 2
-}
+// Store types enum (removed as not used in official API)
+// export enum StoreType {
+//   PICKUP_POINT = 1,
+//   SERVICE_POINT = 2
+// }

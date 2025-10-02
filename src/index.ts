@@ -43,13 +43,13 @@ export type {
   PathaoCityResponse,
   PathaoOrderStatusResponse,
   PathaoAreaResponse,
+  PathaoZoneResponse,
   PathaoError,
 } from './types';
 
 export {
   DeliveryType,
   ItemType,
-  StoreType,
 } from './types';
 
 // Re-export everything for convenience

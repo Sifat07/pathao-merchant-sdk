@@ -40,6 +40,7 @@ import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
 
 // Initialize the SDK
 const pathao = new PathaoApiService({
+  baseURL: 'https://api-hermes.pathao.com', // or use PATHAO_BASE_URL env var
   clientId: 'your-client-id',
   clientSecret: 'your-client-secret',
   username: 'your-username',
@@ -72,9 +73,51 @@ interface PathaoConfig {
   clientSecret: string;    // Your Pathao API client secret
   username: string;        // Your Pathao API username
   password: string;        // Your Pathao API password
-  baseURL?: string;        // API base URL (default: https://api-hermes.pathao.com)
+  baseURL: string;         // API base URL (required)
   timeout?: number;        // Request timeout in ms (default: 30000)
 }
+```
+
+#### Environment Variables
+
+You can use environment variables to configure the SDK, which is especially useful for different environments (sandbox vs production):
+
+```bash
+# Base URL (required)
+PATHAO_BASE_URL=https://courier-api-sandbox.pathao.com  # For sandbox
+# PATHAO_BASE_URL=https://api-hermes.pathao.com         # For live
+
+# Authentication credentials (all required)
+PATHAO_CLIENT_ID=your-client-id
+PATHAO_CLIENT_SECRET=your-client-secret
+PATHAO_USERNAME=your-username
+PATHAO_PASSWORD=your-password
+
+# Optional
+PATHAO_TIMEOUT=30000  # Request timeout in milliseconds
+```
+
+The SDK will automatically use these environment variables if they are set, falling back to the provided config values or defaults.
+
+```typescript
+// Option 1: All from environment variables
+const pathao = new PathaoApiService({});
+
+// Option 2: Mix of config and environment variables
+const pathao = new PathaoApiService({
+  baseURL: 'https://api-hermes.pathao.com', // This overrides PATHAO_BASE_URL
+  clientId: 'your-client-id', // This overrides PATHAO_CLIENT_ID
+  // Other credentials will be taken from environment variables
+});
+
+// Option 3: All from config (environment variables as fallback)
+const pathao = new PathaoApiService({
+  baseURL: process.env.PATHAO_BASE_URL || 'https://api-hermes.pathao.com',
+  clientId: process.env.PATHAO_CLIENT_ID || 'your-client-id',
+  clientSecret: process.env.PATHAO_CLIENT_SECRET || 'your-client-secret',
+  username: process.env.PATHAO_USERNAME || 'your-username',
+  password: process.env.PATHAO_PASSWORD || 'your-password',
+});
 ```
 
 ### Order Management

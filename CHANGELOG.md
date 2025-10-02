@@ -1,3 +1,9 @@
+## [1.2.0] - 2025-10-02
+
+### ✨ New Features
+- 2448245 feat: add comprehensive CI/CD pipeline and automatic release management
+
+
 ## [1.1.0] - 2025-10-01
 
 ### ✨ New Features

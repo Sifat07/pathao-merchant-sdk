@@ -9,6 +9,7 @@ const { PathaoApiService, DeliveryType, ItemType } = require('@sifat07/pathao-me
 async function simpleExample() {
   // Initialize the Pathao service
   const pathao = new PathaoApiService({
+    baseURL: process.env.PATHAO_BASE_URL,
     clientId: process.env.PATHAO_CLIENT_ID,
     clientSecret: process.env.PATHAO_CLIENT_SECRET,
     username: process.env.PATHAO_USERNAME,
@@ -34,8 +35,9 @@ async function simpleExample() {
 
     console.log('Order created successfully:', {
       consignmentId: order.data.consignment_id,
-      invoiceId: order.data.invoice_id,
-      status: order.data.status
+      merchantOrderId: order.data.merchant_order_id,
+      orderStatus: order.data.order_status,
+      deliveryFee: order.data.delivery_fee
     });
 
   } catch (error) {
