@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2025-12-05
+
+### Changed
+- Added `PathaoApiError` with structured fields (`status`, `code`, `type`, `errors`, `validation`, `responseData`) and updated all SDK methods to throw it.
+
+### Verified
+- `npm test` (jest) passes.
+
 ## [1.2.0] - 2024-12-05
 
 ### Fixed

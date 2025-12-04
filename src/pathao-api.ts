@@ -36,6 +36,33 @@ import {
   PathaoZoneResponse,
 } from './types';
 
+export class PathaoApiError extends Error {
+  status: number | undefined;
+  code: number | undefined;
+  type: string | undefined;
+  errors: Record<string, string[]> | undefined;
+  validation: Record<string, string[]> | undefined;
+  responseData: unknown;
+
+  constructor(message: string, options: {
+    status?: number | undefined;
+    code?: number | undefined;
+    type?: string | undefined;
+    errors?: Record<string, string[]> | undefined;
+    validation?: Record<string, string[]> | undefined;
+    responseData?: unknown;
+  } = {}) {
+    super(message);
+    this.name = 'PathaoApiError';
+    this.status = options.status;
+    this.code = options.code;
+    this.type = options.type;
+    this.errors = options.errors;
+    this.validation = options.validation;
+    this.responseData = options.responseData;
+  }
+}
+
 export class PathaoApiService {
   private pathaoClient: AxiosInstance;
   private accessToken: string | null = null;
@@ -208,7 +235,7 @@ export class PathaoApiService {
       this.circuitBreaker.isOpen = false;
     } catch (error) {
       this.handleCircuitBreaker();
-      throw new Error(`Authentication failed: ${this.getErrorMessage(error)}`);
+      throw this.toPathaoApiError(error, 'Authentication failed');
     }
   }
 
@@ -234,7 +261,7 @@ export class PathaoApiService {
       this.circuitBreaker.isOpen = false;
     } catch (error) {
       this.handleCircuitBreaker();
-      throw new Error(`Token refresh failed: ${this.getErrorMessage(error)}`);
+      throw this.toPathaoApiError(error, 'Token refresh failed');
     }
   }
 
@@ -247,6 +274,28 @@ export class PathaoApiService {
       return error.message;
     }
     return (error as Error).message || 'Unknown error';
+  }
+
+  private toPathaoApiError(error: unknown, context: string): PathaoApiError {
+    if (error instanceof PathaoApiError) {
+      return error;
+    }
+
+    const messageFallback = this.getErrorMessage(error);
+    const axiosLike = (error instanceof AxiosError) ? error : (typeof error === 'object' && error && 'response' in (error as any) ? error as AxiosError : null);
+    if (axiosLike) {
+      const pathaoError = axiosLike.response?.data as PathaoError | undefined;
+      return new PathaoApiError(`${context}: ${pathaoError?.message || messageFallback}`, {
+        status: axiosLike.response?.status,
+        code: pathaoError?.code ?? axiosLike.response?.status,
+        type: pathaoError?.type,
+        errors: pathaoError?.errors,
+        validation: pathaoError?.validation,
+        responseData: pathaoError ?? axiosLike.response?.data,
+      });
+    }
+
+    return new PathaoApiError(`${context}: ${messageFallback}`);
   }
 
   private handleCircuitBreaker(): void {
@@ -264,8 +313,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.post<PathaoOrderResponse>('/aladdin/api/v1/orders', orderData);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to create Pathao order: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to create Pathao order');
     }
   }
 
@@ -275,8 +323,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.post<PathaoStoreCreateResponse>('/aladdin/api/v1/stores', storeData);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to create Pathao store: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to create Pathao store');
     }
   }
 
@@ -286,8 +333,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.get<PathaoStoreListResponse>('/aladdin/api/v1/stores');
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to fetch Pathao stores: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to fetch Pathao stores');
     }
   }
 
@@ -297,8 +343,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.post<PathaoPriceResponse>('/aladdin/api/v1/merchant/price-plan', priceData);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to calculate Pathao price: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to calculate Pathao price');
     }
   }
 
@@ -308,8 +353,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.get<PathaoCityResponse>('/aladdin/api/v1/city-list');
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to fetch Pathao cities: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to fetch Pathao cities');
     }
   }
 
@@ -319,8 +363,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.get<PathaoZoneResponse>(`/aladdin/api/v1/cities/${cityId}/zone-list`);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to fetch Pathao zones: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to fetch Pathao zones');
     }
   }
 
@@ -330,8 +373,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.get<PathaoAreaResponse>(`/aladdin/api/v1/zones/${zoneId}/area-list`);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to fetch Pathao areas: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to fetch Pathao areas');
     }
   }
 
@@ -341,8 +383,7 @@ export class PathaoApiService {
       const response = await this.pathaoClient.get<PathaoOrderStatusResponse>(`/aladdin/api/v1/orders/${consignmentId}/info`);
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to fetch Pathao order status: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to fetch Pathao order status');
     }
   }
 
@@ -359,8 +400,7 @@ export class PathaoApiService {
       }>('/aladdin/api/v1/orders/bulk', { orders });
       return response.data;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      throw new Error(`Failed to create bulk Pathao orders: ${errorMessage}`);
+      throw this.toPathaoApiError(error, 'Failed to create bulk Pathao orders');
     }
   }
 

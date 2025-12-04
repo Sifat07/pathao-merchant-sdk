@@ -1,4 +1,4 @@
-import { PathaoApiService, DeliveryType, ItemType } from '../src/index';
+import { PathaoApiService, DeliveryType, ItemType, PathaoApiError } from '../src/index';
 
 // Mock axios
 jest.mock('axios');
@@ -174,17 +174,30 @@ describe('PathaoApiService', () => {
 
       const mockError = {
         response: {
+          status: 400,
           data: {
             type: 'error',
             code: 400,
-            message: 'Invalid order data'
+            message: 'Invalid order data',
+            errors: {
+              recipient_phone: ['invalid']
+            }
           }
         }
       };
 
       mockedAxios.create().post.mockRejectedValue(mockError);
 
-      await expect(pathaoService.createOrder(mockOrderData)).rejects.toThrow('Failed to create Pathao order');
+      let caughtError: unknown;
+      try {
+        await pathaoService.createOrder(mockOrderData);
+      } catch (err) {
+        caughtError = err;
+      }
+
+      expect(caughtError).toBeInstanceOf(PathaoApiError);
+      expect((caughtError as PathaoApiError).code).toBe(400);
+      expect((caughtError as PathaoApiError).errors).toEqual({ recipient_phone: ['invalid'] });
     });
   });
 
