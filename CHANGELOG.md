@@ -1,18 +1,7 @@
-## [1.2.0] - 2025-10-02
+## [1.3.0] - 2025-12-04
 
 ### ✨ New Features
-- 2448245 feat: add comprehensive CI/CD pipeline and automatic release management
-
-
-## [1.1.0] - 2025-10-01
-
-### ✨ New Features
-- 19f1ffd feat: add comprehensive CI/CD pipeline and automatic release management
-
-### 📝 Other Changes
-- d954466 Merge remote repository and resolve LICENSE conflict
-- 952adea Initial commit: Pathao Merchant API SDK v1.0.0
-- e5f39c7 Initial commit
+- b4fa591 feat: enhance Pathao API SDK with environment variable support and improved error handling
 
 
 # Changelog
@@ -23,6 +12,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [1.2.0] - 2024-12-05
+
+### Fixed
+- Fixed `PathaoPriceRequest` type - removed incorrect `recipient_area` field
+- Split store response types into `PathaoStoreCreateResponse` and `PathaoStoreListResponse`
+- Updated README examples to match official API response structures
+- Removed deprecated `StoreType` enum references
+
+### Changed
+- Enhanced package.json with ESM exports field and sideEffects flag
+- Improved npm package structure with .npmignore
+- Added CONTRIBUTING.md for contributors
+- Reorganized documentation files into docs/ folder
+
+### Verified
+- All endpoints tested against official Pathao sandbox API
+- Type definitions verified against actual API responses
+
+## [1.1.0] - 2024-10-01
+
+### Added
+- Comprehensive CI/CD pipeline and automatic release management
+
+## [1.0.0] - 2024-10-01
 
 ### Added
 - Initial release of Pathao Merchant API SDK

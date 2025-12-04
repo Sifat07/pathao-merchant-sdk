@@ -196,8 +196,7 @@ describe('PathaoApiService', () => {
         item_weight: 1.0,
         delivery_type: DeliveryType.NORMAL,
         recipient_city: 1,
-        recipient_zone: 1,
-        recipient_area: 1
+        recipient_zone: 1
       };
 
       const mockResponse = {

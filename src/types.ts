@@ -62,21 +62,46 @@ export interface PathaoOrderResponse {
   };
 }
 
-// Official Pathao Store Response
-export interface PathaoStoreResponse {
+// Official Pathao Store Creation Response
+export interface PathaoStoreCreateResponse {
   type: string;
   code: number;
   message: string;
   data: {
-    store_id: number;
-    store_name: string;
-    store_address: string;
-    is_active: number;                 // 1 for active, 0 for deactivated
-    city_id: number;
-    zone_id: number;
-    hub_id: number;
-    is_default_store: boolean;
-    is_default_return_store: boolean;
+    store_name: string;  // Only store_name returned on creation
+  };
+}
+
+// Official Pathao Store List Item (from GET /stores)
+export interface PathaoStore {
+  store_id: number;
+  store_name: string;
+  store_address: string;
+  is_active: number;                 // 1 for active, 0 for deactivated
+  city_id: number;
+  zone_id: number;
+  hub_id: number;
+  is_default_store: boolean;
+  is_default_return_store: boolean;
+}
+
+// Official Pathao Store List Response
+export interface PathaoStoreListResponse {
+  type: string;
+  code: number;
+  message: string;
+  data: {
+    data: PathaoStore[];
+    total: number;
+    current_page: number;
+    per_page: number;
+    total_in_page: number;
+    last_page: number;
+    path: string;
+    to: number;
+    from: number;
+    last_page_url: string;
+    first_page_url: string;
   };
 }
 
@@ -88,7 +113,6 @@ export interface PathaoPriceRequest {
   delivery_type: number;
   recipient_city: number;
   recipient_zone: number;
-  recipient_area: number;
 }
 
 // Official Pathao Price Response

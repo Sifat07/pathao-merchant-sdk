@@ -1,15 +1,33 @@
 # Pathao Merchant API SDK
 
-[![npm version](https://badge.fury.io/js/pathao-merchant-sdk.svg)](https://badge.fury.io/js/pathao-merchant-sdk)
+[![npm version](https://img.shields.io/npm/v/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
+[![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/sifat07/pathao-merchant-sdk/ci.yml?branch=main)](https://github.com/sifat07/pathao-merchant-sdk/actions)
 
 An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. This community package provides a clean, type-safe interface for all Pathao Merchant API operations including order management, store management, price calculation, and more.
 
-[![npm package](https://img.shields.io/npm/v/pathao-merchant-sdk?style=flat-square)](https://www.npmjs.com/package/pathao-merchant-sdk)
-[![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk?style=flat-square)](https://www.npmjs.com/package/pathao-merchant-sdk)
-
 > **Disclaimer**: This is not an official package from Pathao. It's a community-maintained SDK based on the public Pathao Merchant API documentation.
+
+## Table of Contents
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Environment Variables](#environment-variables)
+- [What You Can Do](#what-you-can-do)
+- [API Reference](#api-reference)
+- [Examples](#examples)
+- [Error Handling](#error-handling)
+- [Authentication](#authentication)
+- [Official Documentation](#official-documentation)
+- [Contributing](#contributing)
+- [Development](#development)
+- [License](#license)
+- [Support](#support)
+- [Changelog](#changelog)
 
 ## Features
 
@@ -22,6 +40,11 @@ An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. T
 - ⚡ **Built with Axios** - Reliable HTTP client with request/response interceptors
 - 🛡️ **Error Handling** - Comprehensive error handling with detailed error messages
 - 📚 **Well Documented** - Extensive documentation and examples
+
+## Requirements
+
+- Node.js >= 18 (see `engines` in `package.json`)
+- TypeScript >= 4.9 (peer dependency; repository uses 5.x)
 
 ## Installation
 
@@ -63,6 +86,44 @@ const order = await pathao.createOrder({
 console.log('Order created:', order.data.consignment_id);
 ```
 
+## Environment Variables
+
+Copy `env.example` to `.env` and fill in your credentials. If your runtime does not auto-load environment files, install and load `dotenv`:
+
+```bash
+cp env.example .env
+npm install dotenv --save-dev # or yarn add -D dotenv / pnpm add -D dotenv
+```
+
+```typescript
+import 'dotenv/config';
+```
+
+Required and optional variables:
+
+```env
+# Base URL (choose one)
+PATHAO_BASE_URL=https://courier-api-sandbox.pathao.com   # sandbox
+# PATHAO_BASE_URL=https://api-hermes.pathao.com          # production
+
+# Authentication (required)
+PATHAO_CLIENT_ID=your-client-id
+PATHAO_CLIENT_SECRET=your-client-secret
+PATHAO_USERNAME=your-username
+PATHAO_PASSWORD=your-password
+
+# Optional
+PATHAO_TIMEOUT=30000
+```
+
+## What You Can Do
+
+- Create, price, and track delivery orders
+- Manage stores (pickup/service points)
+- Look up cities, zones, and areas
+- Validate phone, address, weight, and recipient inputs
+- Automatically handle OAuth2 authentication and token refresh
+
 ## API Reference
 
 ### Configuration
@@ -80,24 +141,7 @@ interface PathaoConfig {
 
 #### Environment Variables
 
-You can use environment variables to configure the SDK, which is especially useful for different environments (sandbox vs production):
-
-```bash
-# Base URL (required)
-PATHAO_BASE_URL=https://courier-api-sandbox.pathao.com  # For sandbox
-# PATHAO_BASE_URL=https://api-hermes.pathao.com         # For live
-
-# Authentication credentials (all required)
-PATHAO_CLIENT_ID=your-client-id
-PATHAO_CLIENT_SECRET=your-client-secret
-PATHAO_USERNAME=your-username
-PATHAO_PASSWORD=your-password
-
-# Optional
-PATHAO_TIMEOUT=30000  # Request timeout in milliseconds
-```
-
-The SDK will automatically use these environment variables if they are set, falling back to the provided config values or defaults.
+The SDK automatically reads the variables listed in the [Environment Variables](#environment-variables) section when present, and falls back to the values you pass in the config.
 
 ```typescript
 // Option 1: All from environment variables
@@ -149,7 +193,7 @@ const order = await pathao.createOrder({
 
 ```typescript
 const status = await pathao.getOrderStatus('consignment-id');
-console.log('Order status:', status.data.status);
+console.log('Order status:', status.data.order_status);
 ```
 
 ### Store Management
@@ -164,8 +208,7 @@ const store = await pathao.createStore({
   address: '123 Store Street, Dhanmondi',
   city_id: 1,
   zone_id: 1,
-  area_id: 1,
-  store_type: StoreType.PICKUP_POINT // 1 for Pickup Point, 2 for Service Point
+  area_id: 1
 });
 ```
 
@@ -173,7 +216,7 @@ const store = await pathao.createStore({
 
 ```typescript
 const stores = await pathao.getStores();
-console.log('Available stores:', stores);
+console.log('Available stores:', stores.data.data);
 ```
 
 ### Price Calculation
@@ -185,13 +228,12 @@ const price = await pathao.calculatePrice({
   item_weight: 1.0,
   delivery_type: DeliveryType.NORMAL,
   recipient_city: 1,
-  recipient_zone: 1,
-  recipient_area: 1
+  recipient_zone: 1
 });
 
-console.log('Delivery charge:', price.data.delivery_charge);
-console.log('COD charge:', price.data.cod_charge);
-console.log('Total charge:', price.data.total_charge);
+console.log('Price:', price.data.price);
+console.log('Final price:', price.data.final_price);
+console.log('COD percentage:', price.data.cod_percentage);
 ```
 
 ### Location Services
@@ -253,15 +295,6 @@ enum ItemType {
 }
 ```
 
-### StoreType
-
-```typescript
-enum StoreType {
-  PICKUP_POINT = 1,   // Pickup Point
-  SERVICE_POINT = 2   // Service Point
-}
-```
-
 ## Error Handling
 
 The SDK provides comprehensive error handling with detailed error messages:
@@ -290,17 +323,6 @@ const pathao = new PathaoApiService({
   username: process.env.PATHAO_USERNAME,
   password: process.env.PATHAO_PASSWORD
 });
-```
-
-## Environment Variables
-
-Create a `.env` file with your Pathao API credentials:
-
-```env
-PATHAO_CLIENT_ID=your-client-id
-PATHAO_CLIENT_SECRET=your-client-secret
-PATHAO_USERNAME=your-username
-PATHAO_PASSWORD=your-password
 ```
 
 ## Examples
@@ -362,9 +384,24 @@ async function createDeliveryOrder() {
 }
 ```
 
+## Official Documentation
+
+This SDK is based on the official Pathao Courier Merchant API documentation. For complete API reference and details:
+
+- **[Official API Documentation](./docs/official-pathao-api-documentation.md)** - Complete Pathao API guide
+- **[API Reference](./docs/pathao-api-reference.txt)** - Original API reference document
+- **[Pathao Merchant Portal](https://merchant.pathao.com)** - Official merchant dashboard
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Development
+
+- Build: `npm run build`
+- Tests: `npm test`
+- Lint: `npm run lint`
+- Type check: `npm run type-check`
 
 ## License
 

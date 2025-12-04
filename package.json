@@ -1,14 +1,24 @@
 {
   "name": "pathao-merchant-sdk",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Unofficial Pathao Merchant API SDK for Node.js and TypeScript",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md"
   ],
   "scripts": {
     "build": "tsup",

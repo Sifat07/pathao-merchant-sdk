@@ -8,16 +8,16 @@
  * 4. Track order status
  */
 
-import { PathaoApiService, DeliveryType, ItemType } from '../src/index';
+import { DeliveryType, ItemType, PathaoApiService } from '../src/index';
 
 async function basicUsageExample() {
   // Initialize the Pathao service
   const pathao = new PathaoApiService({
-    baseURL: process.env.PATHAO_BASE_URL!,
-    clientId: process.env.PATHAO_CLIENT_ID!,
-    clientSecret: process.env.PATHAO_CLIENT_SECRET!,
-    username: process.env.PATHAO_USERNAME!,
-    password: process.env.PATHAO_PASSWORD!
+    baseURL: process.env.PATHAO_BASE_URL || 'https://courier-api-sandbox.pathao.com',
+    clientId: process.env.PATHAO_CLIENT_ID || 'your-client-id',
+    clientSecret: process.env.PATHAO_CLIENT_SECRET || 'your-client-secret',
+    username: process.env.PATHAO_USERNAME || 'your-username',
+    password: process.env.PATHAO_PASSWORD || 'your-password',
   });
 
   try {
@@ -49,7 +49,6 @@ async function basicUsageExample() {
       delivery_type: DeliveryType.NORMAL,
       recipient_city: 1, // Dhaka
       recipient_zone: 1, // Dhanmondi
-      recipient_area: 1  // Dhanmondi 27
     });
 
     console.log('Price calculation result:', {
@@ -59,7 +58,7 @@ async function basicUsageExample() {
       cod_enabled: price.data.cod_enabled,
       cod_percentage: price.data.cod_percentage,
       additional_charge: price.data.additional_charge,
-      final_price: price.data.final_price
+      final_price: price.data.final_price,
     });
 
     // 3. Create a delivery order
@@ -75,14 +74,14 @@ async function basicUsageExample() {
       item_quantity: 1,
       item_weight: 1.0,
       amount_to_collect: 500,
-      special_instruction: 'Call before delivery'
+      special_instruction: 'Call before delivery',
     });
 
     console.log('Order created successfully:', {
       consignment_id: order.data.consignment_id,
       merchant_order_id: order.data.merchant_order_id,
       order_status: order.data.order_status,
-      delivery_fee: order.data.delivery_fee
+      delivery_fee: order.data.delivery_fee,
     });
 
     // 4. Track order status

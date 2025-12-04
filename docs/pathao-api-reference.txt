@@ -10,7 +10,7 @@ lNbWLPWdyg
 
 Client Secret
 
-RK28Av0zTEFHA3lBKym62JZNdeGNxx8jP7SKvmSs
+••••••••••••••••••••••••••••••••••••••••
 
 
 Sandbox/Test Environment Credentials
