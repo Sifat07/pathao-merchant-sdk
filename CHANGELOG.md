@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2025-12-08
+
+### Added
+- **Factory methods**: `PathaoApiService.fromEnv()` and `PathaoApiService.fromConfig()` for convenient initialization patterns
+- **Debug logging**: Optional `debug` flag in constructor options to log all HTTP requests and responses
+- **Configurable circuit breaker**: `circuitBreaker` option to customize failure threshold and timeout
+- **Comprehensive error handling examples** in README with `PathaoApiError` usage patterns
+- **Advanced options documentation** for factory methods and configuration
+
+### Changed
+- **Breaking**: Deferred configuration validation to first API call instead of constructor throw. SDK now initializes successfully even without credentials, and throws `PathaoApiError` when attempting an API call with missing config.
+- Removed config duplication in constructor (axios create config now uses resolved config values).
+- Constructor now accepts optional `options` parameter: `new PathaoApiService(config, { debug?, circuitBreaker? })`
+- Constructor no longer throws upfront, allowing graceful error handling at first API usage.
+
+### Fixed
+- `ResolvedPathaoConfig` internal type ensures `timeout` is always a number.
+- Tests updated to reflect deferred validation behavior.
+- Circuit breaker now properly resets on successful requests and maintains configurable thresholds.
+
+### Verified
+- `npm test` passes with 22/22 tests.
+- Build succeeds (CJS/ESM/DTS).
+
 ## [2.0.1] - 2025-12-05
 
 ### Changed

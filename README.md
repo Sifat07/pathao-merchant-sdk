@@ -164,6 +164,56 @@ const pathao = new PathaoApiService({
 });
 ```
 
+#### Factory Methods
+
+The SDK provides convenient factory methods for common initialization patterns:
+
+```typescript
+// Create from environment variables
+const pathao = PathaoApiService.fromEnv();
+
+// Create from environment with additional options
+const pathao = PathaoApiService.fromEnv({
+  debug: true, // Enable debug logging
+  circuitBreaker: {
+    threshold: 10,    // Number of failures before opening circuit (default: 5)
+    timeout: 120000   // Timeout before attempting to close circuit (default: 60000ms)
+  }
+});
+
+// Create from explicit config
+const pathao = PathaoApiService.fromConfig({
+  baseURL: 'https://api-hermes.pathao.com',
+  clientId: 'client-id',
+  clientSecret: 'client-secret',
+  username: 'username',
+  password: 'password',
+  timeout: 5000
+}, {
+  debug: true,
+  circuitBreaker: { threshold: 8 }
+});
+```
+
+#### Advanced Options
+
+```typescript
+const pathao = new PathaoApiService(config, {
+  debug: false,           // Enable detailed debug logging (default: false)
+  circuitBreaker: {
+    threshold: 5,         // Failures before opening circuit (default: 5)
+    timeout: 60000        // Wait time before retry (default: 60000ms = 1 min)
+  }
+});
+```
+
+When `debug` is enabled, the SDK logs all HTTP requests and responses:
+
+```
+[Pathao SDK] GET /aladdin/api/v1/stores { headers: {...}, data: {...} }
+[Pathao SDK] Response 200 { url: '...', data: {...} }
+```
+
 ### Order Management
 
 #### Create Order
@@ -297,17 +347,61 @@ enum ItemType {
 
 ## Error Handling
 
-The SDK provides comprehensive error handling with detailed error messages:
+The SDK provides comprehensive error handling through the `PathaoApiError` class, which extends Error with additional properties for detailed error information:
 
 ```typescript
+import { PathaoApiService, PathaoApiError } from 'pathao-merchant-sdk';
+
+const pathao = new PathaoApiService({
+  clientId: process.env.PATHAO_CLIENT_ID,
+  clientSecret: process.env.PATHAO_CLIENT_SECRET,
+  username: process.env.PATHAO_USERNAME,
+  password: process.env.PATHAO_PASSWORD
+});
+
 try {
   const order = await pathao.createOrder(orderData);
+  console.log('Order created:', order.data.consignment_id);
 } catch (error) {
-  console.error('Order creation failed:', error.message);
-  
-  // Check if it's a Pathao API error
-  if (error.response?.data) {
-    console.error('API Error:', error.response.data);
+  // Check if it's a PathaoApiError (structured error from Pathao API)
+  if (error instanceof PathaoApiError) {
+    console.error('Pathao API Error:', {
+      status: error.status,        // HTTP status code
+      code: error.code,            // Pathao error code
+      type: error.type,            // Error type (e.g., 'ValidationException')
+      message: error.message,      // Error message
+      errors: error.errors,        // Field-level errors
+      validation: error.validation // Validation errors
+    });
+  } else {
+    console.error('Unexpected error:', error.message);
+  }
+}
+```
+
+### Error Properties
+
+- **status**: HTTP status code (e.g., 400, 401, 422)
+- **code**: Pathao API error code for programmatic handling
+- **type**: Error type string (e.g., 'ValidationException', 'AuthenticationException')
+- **errors**: Object with field-level error messages
+- **validation**: Object with validation error messages
+- **message**: Human-readable error message
+
+### Configuration Validation
+
+Configuration validation is deferred until the first API call to allow gradual setup:
+
+```typescript
+// This won't throw immediately
+const pathao = new PathaoApiService({});
+
+// This will throw PathaoApiError if credentials are missing
+try {
+  await pathao.getStores();
+} catch (error) {
+  if (error instanceof PathaoApiError) {
+    console.error('Configuration error:', error.validation);
   }
 }
 ```

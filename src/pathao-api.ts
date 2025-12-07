@@ -1,14 +1,14 @@
 /**
  * Pathao Merchant API Service (Unofficial SDK)
- * 
+ *
  * This is an unofficial SDK for the Pathao Merchant API.
- * 
+ *
  * API Details (based on public documentation):
  * - Authentication: OAuth2 with client_id, client_secret, username, password
  * - All endpoints use /aladdin/api/v1/ prefix
  * - Base URL can be set via PATHAO_BASE_URL environment variable or constructor config
  * - Timeout can be set via PATHAO_TIMEOUT environment variable or constructor config
- * 
+ *
  * Features implemented:
  * - Token-based authentication with refresh token support
  * - Store management (create, list stores)
@@ -44,14 +44,17 @@ export class PathaoApiError extends Error {
   validation: Record<string, string[]> | undefined;
   responseData: unknown;
 
-  constructor(message: string, options: {
-    status?: number | undefined;
-    code?: number | undefined;
-    type?: string | undefined;
-    errors?: Record<string, string[]> | undefined;
-    validation?: Record<string, string[]> | undefined;
-    responseData?: unknown;
-  } = {}) {
+  constructor(
+    message: string,
+    options: {
+      status?: number | undefined;
+      code?: number | undefined;
+      type?: string | undefined;
+      errors?: Record<string, string[]> | undefined;
+      validation?: Record<string, string[]> | undefined;
+      responseData?: unknown;
+    } = {},
+  ) {
     super(message);
     this.name = 'PathaoApiError';
     this.status = options.status;
@@ -63,50 +66,70 @@ export class PathaoApiError extends Error {
   }
 }
 
+// Internal resolved config with guaranteed timeout
+interface ResolvedPathaoConfig extends PathaoConfig {
+  timeout: number;
+}
+
+// Circuit breaker configuration
+interface CircuitBreakerConfig {
+  threshold?: number;  // Default: 5
+  timeout?: number;    // Default: 60000ms
+}
+
 export class PathaoApiService {
   private pathaoClient: AxiosInstance;
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiry: number | null = null;
-  private config: PathaoConfig;
+  private config: ResolvedPathaoConfig;
   private isAuthenticating: boolean = false;
   private authPromise: Promise<void> | null = null;
-  private requestQueue: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-  private circuitBreaker = {
-    failures: 0,
-    lastFailureTime: 0,
-    threshold: 5,
-    timeout: 60000, // 1 minute
-    isOpen: false,
+  private requestQueue: Array<{
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }> = [];
+  private hasValidated: boolean = false;
+  private debug: boolean = false;
+  private circuitBreaker: {
+    failures: number;
+    lastFailureTime: number;
+    threshold: number;
+    timeout: number;
+    isOpen: boolean;
   };
 
-  constructor(config: PathaoConfig) {
+  constructor(config: PathaoConfig, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }) {
+    const timeout: number =
+      config.timeout || parseInt(process.env.PATHAO_TIMEOUT || '30000', 10);
+
     this.config = {
       baseURL: config.baseURL || process.env.PATHAO_BASE_URL || '',
-      timeout: config.timeout || parseInt(process.env.PATHAO_TIMEOUT || '30000', 10),
+      timeout,
       clientId: config.clientId || process.env.PATHAO_CLIENT_ID || '',
-      clientSecret: config.clientSecret || process.env.PATHAO_CLIENT_SECRET || '',
+      clientSecret:
+        config.clientSecret || process.env.PATHAO_CLIENT_SECRET || '',
       username: config.username || process.env.PATHAO_USERNAME || '',
       password: config.password || process.env.PATHAO_PASSWORD || '',
     };
 
+    this.debug = options?.debug || false;
+    this.circuitBreaker = {
+      failures: 0,
+      lastFailureTime: 0,
+      threshold: options?.circuitBreaker?.threshold ?? 5,
+      timeout: options?.circuitBreaker?.timeout ?? 60000,
+      isOpen: false,
+    };
+
     this.pathaoClient = axios.create({
-      baseURL: this.config.baseURL || process.env.PATHAO_BASE_URL || '',
-      timeout: this.config.timeout || parseInt(process.env.PATHAO_TIMEOUT || '30000', 10),
+      baseURL: this.config.baseURL,
+      timeout: this.config.timeout,
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
     });
-
-    // Validate required configuration
-    if (!this.config.baseURL) {
-      throw new Error('Pathao API baseURL is required. You can provide it via constructor config or PATHAO_BASE_URL environment variable');
-    }
-    
-    if (!this.config.clientId || !this.config.clientSecret || !this.config.username || !this.config.password) {
-      throw new Error('Pathao API credentials are required: clientId, clientSecret, username, password. You can provide them via constructor config or environment variables (PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME, PATHAO_PASSWORD)');
-    }
 
     // Add request interceptor for authentication
     this.pathaoClient.interceptors.request.use(async (config) => {
@@ -114,11 +137,21 @@ export class PathaoApiService {
       if (config.url?.includes('/issue-token')) {
         return config;
       }
-      
+
+      // Validate configuration on first API call
+      this.validateConfiguration();
       await this.ensureAuthenticated();
       if (this.accessToken) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
       }
+
+      if (this.debug) {
+        console.log(`[Pathao SDK] ${config.method?.toUpperCase()} ${config.url}`, {
+          headers: config.headers,
+          data: config.data,
+        });
+      }
+
       return config;
     });
 
@@ -128,6 +161,14 @@ export class PathaoApiService {
         // Reset circuit breaker on successful request
         this.circuitBreaker.failures = 0;
         this.circuitBreaker.isOpen = false;
+
+        if (this.debug) {
+          console.log(`[Pathao SDK] Response ${response.status}`, {
+            url: response.config.url,
+            data: response.data,
+          });
+        }
+
         return response;
       },
       async (error) => {
@@ -136,7 +177,7 @@ export class PathaoApiService {
           this.accessToken = null;
           this.refreshToken = null;
           this.tokenExpiry = null;
-          
+
           // Retry the request once
           if (error.config && !error.config._retry) {
             error.config._retry = true;
@@ -147,22 +188,59 @@ export class PathaoApiService {
             return this.pathaoClient.request(error.config);
           }
         }
-        
+
         // Handle circuit breaker
         this.handleCircuitBreaker();
         return Promise.reject(error);
-      },
+      }
     );
+  }
+
+  private validateConfiguration(): void {
+    // Only validate once
+    if (this.hasValidated) {
+      return;
+    }
+
+    if (!this.config.baseURL) {
+      throw this.toPathaoApiError(
+        new Error(
+          "Pathao API baseURL is required. You can provide it via constructor config or PATHAO_BASE_URL environment variable"
+        ),
+        "Configuration validation failed"
+      );
+    }
+
+    if (
+      !this.config.clientId ||
+      !this.config.clientSecret ||
+      !this.config.username ||
+      !this.config.password
+    ) {
+      throw this.toPathaoApiError(
+        new Error(
+          "Pathao API credentials are required: clientId, clientSecret, username, password. You can provide them via constructor config or environment variables (PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME, PATHAO_PASSWORD)"
+        ),
+        "Configuration validation failed"
+      );
+    }
+
+    this.hasValidated = true;
   }
 
   private async ensureAuthenticated(): Promise<void> {
     // Check circuit breaker
     if (this.circuitBreaker.isOpen) {
-      if (Date.now() - this.circuitBreaker.lastFailureTime > this.circuitBreaker.timeout) {
+      if (
+        Date.now() - this.circuitBreaker.lastFailureTime >
+        this.circuitBreaker.timeout
+      ) {
         this.circuitBreaker.isOpen = false;
         this.circuitBreaker.failures = 0;
       } else {
-        throw new Error('Circuit breaker is open. Too many authentication failures.');
+        throw new Error(
+          "Circuit breaker is open. Too many authentication failures."
+        );
       }
     }
 
@@ -206,7 +284,7 @@ export class PathaoApiService {
   private processRequestQueue(): void {
     const queue = [...this.requestQueue];
     this.requestQueue = [];
-    
+
     queue.forEach(({ resolve }) => {
       try {
         resolve();
@@ -218,50 +296,56 @@ export class PathaoApiService {
 
   private async authenticate(): Promise<void> {
     try {
-      const response = await this.pathaoClient.post<PathaoAuthResponse>('/aladdin/api/v1/issue-token', {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        username: this.config.username,
-        password: this.config.password,
-        grant_type: 'password',
-      });
+      const response = await this.pathaoClient.post<PathaoAuthResponse>(
+        "/aladdin/api/v1/issue-token",
+        {
+          client_id: this.config.clientId,
+          client_secret: this.config.clientSecret,
+          username: this.config.username,
+          password: this.config.password,
+          grant_type: "password",
+        }
+      );
 
       this.accessToken = response.data.access_token;
       this.refreshToken = response.data.refresh_token;
-      this.tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 60000; // 1 minute buffer
+      this.tokenExpiry = Date.now() + response.data.expires_in * 1000 - 60000; // 1 minute buffer
 
       // Reset circuit breaker on successful auth
       this.circuitBreaker.failures = 0;
       this.circuitBreaker.isOpen = false;
     } catch (error) {
       this.handleCircuitBreaker();
-      throw this.toPathaoApiError(error, 'Authentication failed');
+      throw this.toPathaoApiError(error, "Authentication failed");
     }
   }
 
   private async refreshAccessToken(): Promise<void> {
     if (!this.refreshToken) {
-      throw new Error('No refresh token available');
+      throw new Error("No refresh token available");
     }
 
     try {
-      const response = await this.pathaoClient.post<PathaoAuthResponse>('/aladdin/api/v1/issue-token', {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-        refresh_token: this.refreshToken,
-        grant_type: 'refresh_token',
-      });
+      const response = await this.pathaoClient.post<PathaoAuthResponse>(
+        "/aladdin/api/v1/issue-token",
+        {
+          client_id: this.config.clientId,
+          client_secret: this.config.clientSecret,
+          refresh_token: this.refreshToken,
+          grant_type: "refresh_token",
+        }
+      );
 
       this.accessToken = response.data.access_token;
       this.refreshToken = response.data.refresh_token;
-      this.tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 60000; // 1 minute buffer
+      this.tokenExpiry = Date.now() + response.data.expires_in * 1000 - 60000; // 1 minute buffer
 
       // Reset circuit breaker on successful refresh
       this.circuitBreaker.failures = 0;
       this.circuitBreaker.isOpen = false;
     } catch (error) {
       this.handleCircuitBreaker();
-      throw this.toPathaoApiError(error, 'Token refresh failed');
+      throw this.toPathaoApiError(error, "Token refresh failed");
     }
   }
 
@@ -273,7 +357,7 @@ export class PathaoApiService {
       }
       return error.message;
     }
-    return (error as Error).message || 'Unknown error';
+    return (error as Error).message || "Unknown error";
   }
 
   private toPathaoApiError(error: unknown, context: string): PathaoApiError {
@@ -282,17 +366,25 @@ export class PathaoApiService {
     }
 
     const messageFallback = this.getErrorMessage(error);
-    const axiosLike = (error instanceof AxiosError) ? error : (typeof error === 'object' && error && 'response' in (error as any) ? error as AxiosError : null);
+    const axiosLike =
+      error instanceof AxiosError
+        ? error
+        : typeof error === "object" && error && "response" in (error as any)
+        ? (error as AxiosError)
+        : null;
     if (axiosLike) {
       const pathaoError = axiosLike.response?.data as PathaoError | undefined;
-      return new PathaoApiError(`${context}: ${pathaoError?.message || messageFallback}`, {
-        status: axiosLike.response?.status,
-        code: pathaoError?.code ?? axiosLike.response?.status,
-        type: pathaoError?.type,
-        errors: pathaoError?.errors,
-        validation: pathaoError?.validation,
-        responseData: pathaoError ?? axiosLike.response?.data,
-      });
+      return new PathaoApiError(
+        `${context}: ${pathaoError?.message || messageFallback}`,
+        {
+          status: axiosLike.response?.status,
+          code: pathaoError?.code ?? axiosLike.response?.status,
+          type: pathaoError?.type,
+          errors: pathaoError?.errors,
+          validation: pathaoError?.validation,
+          responseData: pathaoError ?? axiosLike.response?.data,
+        }
+      );
     }
 
     return new PathaoApiError(`${context}: ${messageFallback}`);
@@ -301,95 +393,122 @@ export class PathaoApiService {
   private handleCircuitBreaker(): void {
     this.circuitBreaker.failures++;
     this.circuitBreaker.lastFailureTime = Date.now();
-    
+
     if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
       this.circuitBreaker.isOpen = true;
     }
   }
 
   // Official Pathao API: Create Order
-  async createOrder(orderData: PathaoOrderRequest): Promise<PathaoOrderResponse> {
+  async createOrder(
+    orderData: PathaoOrderRequest
+  ): Promise<PathaoOrderResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoOrderResponse>('/aladdin/api/v1/orders', orderData);
+      const response = await this.pathaoClient.post<PathaoOrderResponse>(
+        "/aladdin/api/v1/orders",
+        orderData
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to create Pathao order');
+      throw this.toPathaoApiError(error, "Failed to create Pathao order");
     }
   }
 
   // Official Pathao API: Create Store
-  async createStore(storeData: PathaoStoreRequest): Promise<PathaoStoreCreateResponse> {
+  async createStore(
+    storeData: PathaoStoreRequest
+  ): Promise<PathaoStoreCreateResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoStoreCreateResponse>('/aladdin/api/v1/stores', storeData);
+      const response = await this.pathaoClient.post<PathaoStoreCreateResponse>(
+        "/aladdin/api/v1/stores",
+        storeData
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to create Pathao store');
+      throw this.toPathaoApiError(error, "Failed to create Pathao store");
     }
   }
 
   // Official Pathao API: Get Store List
   async getStores(): Promise<PathaoStoreListResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoStoreListResponse>('/aladdin/api/v1/stores');
+      const response = await this.pathaoClient.get<PathaoStoreListResponse>(
+        "/aladdin/api/v1/stores"
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to fetch Pathao stores');
+      throw this.toPathaoApiError(error, "Failed to fetch Pathao stores");
     }
   }
 
   // Official Pathao API: Calculate Price
-  async calculatePrice(priceData: PathaoPriceRequest): Promise<PathaoPriceResponse> {
+  async calculatePrice(
+    priceData: PathaoPriceRequest
+  ): Promise<PathaoPriceResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoPriceResponse>('/aladdin/api/v1/merchant/price-plan', priceData);
+      const response = await this.pathaoClient.post<PathaoPriceResponse>(
+        "/aladdin/api/v1/merchant/price-plan",
+        priceData
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to calculate Pathao price');
+      throw this.toPathaoApiError(error, "Failed to calculate Pathao price");
     }
   }
 
   // Official Pathao API: Get Cities
   async getCities(): Promise<PathaoCityResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoCityResponse>('/aladdin/api/v1/city-list');
+      const response = await this.pathaoClient.get<PathaoCityResponse>(
+        "/aladdin/api/v1/city-list"
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to fetch Pathao cities');
+      throw this.toPathaoApiError(error, "Failed to fetch Pathao cities");
     }
   }
 
   // Official Pathao API: Get Zones for a City
   async getZones(cityId: number): Promise<PathaoZoneResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoZoneResponse>(`/aladdin/api/v1/cities/${cityId}/zone-list`);
+      const response = await this.pathaoClient.get<PathaoZoneResponse>(
+        `/aladdin/api/v1/cities/${cityId}/zone-list`
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to fetch Pathao zones');
+      throw this.toPathaoApiError(error, "Failed to fetch Pathao zones");
     }
   }
 
   // Official Pathao API: Get Areas for a Zone
   async getAreas(zoneId: number): Promise<PathaoAreaResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoAreaResponse>(`/aladdin/api/v1/zones/${zoneId}/area-list`);
+      const response = await this.pathaoClient.get<PathaoAreaResponse>(
+        `/aladdin/api/v1/zones/${zoneId}/area-list`
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to fetch Pathao areas');
+      throw this.toPathaoApiError(error, "Failed to fetch Pathao areas");
     }
   }
 
   // Official Pathao API: Get Order Status
-  async getOrderStatus(consignmentId: string): Promise<PathaoOrderStatusResponse> {
+  async getOrderStatus(
+    consignmentId: string
+  ): Promise<PathaoOrderStatusResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoOrderStatusResponse>(`/aladdin/api/v1/orders/${consignmentId}/info`);
+      const response = await this.pathaoClient.get<PathaoOrderStatusResponse>(
+        `/aladdin/api/v1/orders/${consignmentId}/info`
+      );
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to fetch Pathao order status');
+      throw this.toPathaoApiError(error, "Failed to fetch Pathao order status");
     }
   }
 
   // Official Pathao API: Create Bulk Order
   async createBulkOrder(
-    orders: PathaoOrderRequest[],
+    orders: PathaoOrderRequest[]
   ): Promise<{ message: string; type: string; code: number; data: boolean }> {
     try {
       const response = await this.pathaoClient.post<{
@@ -397,26 +516,28 @@ export class PathaoApiService {
         type: string;
         code: number;
         data: boolean;
-      }>('/aladdin/api/v1/orders/bulk', { orders });
+      }>("/aladdin/api/v1/orders/bulk", { orders });
       return response.data;
     } catch (error: unknown) {
-      throw this.toPathaoApiError(error, 'Failed to create bulk Pathao orders');
+      throw this.toPathaoApiError(error, "Failed to create bulk Pathao orders");
     }
   }
 
   // Helper method to validate phone number
   static validatePhoneNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
-    return cleanPhone.length === 11 && cleanPhone.startsWith('01');
+    const cleanPhone = phone.replace(/\D/g, "");
+    return cleanPhone.length === 11 && cleanPhone.startsWith("01");
   }
 
   // Helper method to format phone number
   static formatPhoneNumber(phone: string): string {
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 11 && cleanPhone.startsWith('01')) {
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length === 11 && cleanPhone.startsWith("01")) {
       return cleanPhone;
     }
-    throw new Error('Invalid phone number format. Must be 11 digits starting with 01');
+    throw new Error(
+      "Invalid phone number format. Must be 11 digits starting with 01"
+    );
   }
 
   // Helper method to validate address
@@ -450,7 +571,7 @@ export class PathaoApiService {
 
   // Helper method to validate contact number
   static validateContactNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanPhone = phone.replace(/\D/g, "");
     return cleanPhone.length === 11;
   }
 
@@ -468,12 +589,26 @@ export class PathaoApiService {
     this.isAuthenticating = false;
     this.authPromise = null;
     this.requestQueue = [];
-    this.circuitBreaker = {
-      failures: 0,
-      lastFailureTime: 0,
-      threshold: 5,
-      timeout: 60000,
-      isOpen: false,
+    this.circuitBreaker.failures = 0;
+    this.circuitBreaker.isOpen = false;
+    this.circuitBreaker.lastFailureTime = 0;
+  }
+
+  // Static factory method to create instance from environment variables
+  static fromEnv(options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+    const config: PathaoConfig = {
+      clientId: "",
+      clientSecret: "",
+      username: "",
+      password: "",
+      baseURL: "",
     };
+    return new PathaoApiService(config, options);
+  }
+
+  // Static factory method to create instance from configuration object
+  static fromConfig(config: PathaoConfig, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+    return new PathaoApiService(config, options);
   }
 }
+

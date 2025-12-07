@@ -195,7 +195,7 @@ export interface PathaoConfig {
   username: string;
   password: string;
   baseURL: string;
-  timeout?: number;
+  timeout?: number;  // Optional - defaults to 30000 if not provided
 }
 
 // Error response from Pathao API

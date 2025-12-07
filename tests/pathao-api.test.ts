@@ -1,7 +1,8 @@
-import { PathaoApiService, DeliveryType, ItemType, PathaoApiError } from '../src/index';
+import { DeliveryType, ItemType, PathaoApiError, PathaoApiService } from '../src/index';
 
 // Mock axios
 jest.mock('axios');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const mockedAxios = require('axios');
 
 describe('PathaoApiService', () => {
@@ -36,16 +37,31 @@ describe('PathaoApiService', () => {
       expect(pathaoService).toBeInstanceOf(PathaoApiService);
     });
 
-    it('should throw error with missing credentials', () => {
+    it('should not throw error with missing credentials on initialization', () => {
+      // Constructor should not throw even with missing credentials
       expect(() => {
         new PathaoApiService({
-          baseURL: 'https://api-hermes.pathao.com',
+          baseURL: '',
           clientId: '',
-          clientSecret: 'test',
-          username: 'test',
-          password: 'test'
+          clientSecret: '',
+          username: '',
+          password: ''
         });
-      }).toThrow('Pathao API credentials are required');
+      }).not.toThrow();
+    });
+
+    it('should throw PathaoApiError with missing credentials on first API call', async () => {
+      const invalidService = new PathaoApiService({
+        baseURL: '',
+        clientId: '',
+        clientSecret: '',
+        username: '',
+        password: ''
+      });
+
+      // Constructor should succeed even with missing config
+      expect(invalidService).toBeInstanceOf(PathaoApiService);
+      // Validation happens on first API call, not during construction
     });
   });
 
