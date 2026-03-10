@@ -77,7 +77,7 @@ export interface PathaoStore {
   store_id: number;
   store_name: string;
   store_address: string;
-  is_active: number;                 // 1 for active, 0 for deactivated
+  is_active: 0 | 1;                 // 1 for active, 0 for deactivated
   city_id: number;
   zone_id: number;
   hub_id: number;
@@ -125,7 +125,7 @@ export interface PathaoPriceResponse {
     discount: number;                  // Discount for the given item
     promo_discount: number;           // Promo discount for the given item
     plan_id: number;                  // Price plan id for the given item
-    cod_enabled: number;              // 1 if COD enabled, 0 if not
+    cod_enabled: 0 | 1;              // 1 if COD enabled, 0 if not
     cod_percentage: number;           // Cash on delivery percentage
     additional_charge: number;        // If there is any additional charge
     final_price: number;              // Your final price for the given item
@@ -207,9 +207,15 @@ export interface PathaoError {
   validation?: Record<string, string[]>;
 }
 
-// Delivery types enum
+/**
+ * Delivery type codes defined by the Pathao API.
+ * Values correspond to Pathao's internal delivery_type IDs.
+ * @see https://developers.pathao.com - Order Creation endpoint
+ */
 export enum DeliveryType {
+  /** Standard delivery (API value: 48) */
   NORMAL = 48,
+  /** Same-day on-demand delivery (API value: 12) */
   ON_DEMAND = 12
 }
 
@@ -219,8 +225,11 @@ export enum ItemType {
   PARCEL = 2
 }
 
-// Store types enum (removed as not used in official API)
-// export enum StoreType {
-//   PICKUP_POINT = 1,
-//   SERVICE_POINT = 2
-// }
+// Official Pathao Bulk Order Response
+export interface PathaoBulkOrderResponse {
+  message: string;
+  type: string;
+  code: number;
+  data: boolean;
+}
+

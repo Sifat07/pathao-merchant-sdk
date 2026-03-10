@@ -5,7 +5,7 @@
  * 
  * @example
  * ```typescript
- * import { PathaoApiService, DeliveryType, ItemType } from '@sifat07/pathao-merchant-sdk';
+ * import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
  * 
  * const pathao = new PathaoApiService({
  *   clientId: 'your-client-id',
@@ -29,7 +29,8 @@
  * ```
  */
 
-export { PathaoApiService } from './pathao-api';
+export { PathaoApiService, PathaoApiError } from './pathao-api';
+export type { CircuitBreakerConfig } from './pathao-api';
 
 export type {
   PathaoConfig,
@@ -47,13 +48,10 @@ export type {
   PathaoAreaResponse,
   PathaoZoneResponse,
   PathaoError,
+  PathaoBulkOrderResponse,
 } from './types';
 
 export {
   DeliveryType,
   ItemType,
 } from './types';
-
-// Re-export everything for convenience
-export * from './types';
-export * from './pathao-api';

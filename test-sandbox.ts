@@ -3,19 +3,21 @@
  * Tests the SDK against official Pathao sandbox environment
  */
 
-import { PathaoApiService, DeliveryType, ItemType } from './src/index';
+import { DeliveryType, ItemType, PathaoApiService } from './src/index';
 
 async function testSandboxAPI() {
   console.log('🧪 Testing Pathao SDK against Sandbox API\n');
   console.log('=' .repeat(60));
 
-  // Initialize with official sandbox credentials
+  // Initialize with sandbox credentials from environment variables.
+  // Pathao's official sandbox credentials are documented at:
+  // https://developers.pathao.com - set them in your .env file.
   const pathao = new PathaoApiService({
-    baseURL: 'https://courier-api-sandbox.pathao.com',
-    clientId: '7N1aMJQbWm',
-    clientSecret: 'wRcaibZkUdSNz2EI9ZyuXLlNrnAv0TdPUPXMnD39',
-    username: 'test@pathao.com',
-    password: 'lovePathao'
+    baseURL: process.env.PATHAO_BASE_URL || 'https://courier-api-sandbox.pathao.com',
+    clientId: process.env.PATHAO_CLIENT_ID || '',
+    clientSecret: process.env.PATHAO_CLIENT_SECRET || '',
+    username: process.env.PATHAO_USERNAME || '',
+    password: process.env.PATHAO_PASSWORD || '',
   });
 
   try {
@@ -71,7 +73,7 @@ async function testSandboxAPI() {
           item_weight: 0.5,
           delivery_type: DeliveryType.NORMAL,
           recipient_city: cities.data.data[0].city_id,
-          recipient_zone: zones.data.data[0].zone_id
+          recipient_zone: zones.data.data[0].zone_id,
         });
         console.log('✅ Price Calculation Response Structure:');
         console.log(JSON.stringify(price, null, 2));
@@ -97,7 +99,7 @@ async function testSandboxAPI() {
           item_quantity: 1,
           item_weight: 0.5,
           item_description: 'Test item from SDK',
-          amount_to_collect: 100
+          amount_to_collect: 100,
         });
         console.log('✅ Order Creation Response Structure:');
         console.log(JSON.stringify(order, null, 2));
@@ -108,9 +110,9 @@ async function testSandboxAPI() {
         const status = await pathao.getOrderStatus(order.data.consignment_id);
         console.log('✅ Order Status Response Structure:');
         console.log(JSON.stringify(status, null, 2));
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.log('⚠️  Order creation failed (expected in sandbox if store not approved):');
-        console.log(error.message);
+        console.log(error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -131,26 +133,29 @@ async function testSandboxAPI() {
               address: 'House 123, Road 4, Sector 10, Uttara, Dhaka-1230, Bangladesh',
               city_id: cities.data.data[0].city_id,
               zone_id: zones.data.data[0].zone_id,
-              area_id: areas.data.data[0].area_id
+              area_id: areas.data.data[0].area_id,
             });
             console.log('✅ Store Creation Response Structure:');
             console.log(JSON.stringify(newStore, null, 2));
-          } catch (error: any) {
+          } catch (error: unknown) {
             console.log('⚠️  Store creation failed (might require special permissions):');
-            console.log(error.message);
+            console.log(error instanceof Error ? error.message : String(error));
           }
         }
       }
     }
 
-    console.log('\n' + '='.repeat(60));
+    console.log(`\n${  '='.repeat(60)}`);
     console.log('✅ Sandbox API Testing Completed!');
     console.log('='.repeat(60));
 
-  } catch (error: any) {
-    console.error('\n❌ Test Error:', error.message);
-    if (error.response?.data) {
-      console.error('API Response:', JSON.stringify(error.response.data, null, 2));
+  } catch (error: unknown) {
+    console.error('\n❌ Test Error:', error instanceof Error ? error.message : String(error));
+    if (error instanceof Error && 'response' in error) {
+      const axiosLike = error as unknown as { response?: { data?: unknown } };
+      if (axiosLike.response?.data) {
+        console.error('API Response:', JSON.stringify(axiosLike.response.data, null, 2));
+      }
     }
     process.exit(1);
   }

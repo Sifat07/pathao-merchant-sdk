@@ -21,6 +21,7 @@ An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. T
 - [API Reference](#api-reference)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
+- [Webhooks](#webhooks)
 - [Authentication](#authentication)
 - [Official Documentation](#official-documentation)
 - [Contributing](#contributing)
@@ -37,6 +38,8 @@ An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. T
 - 🏪 **Store Management** - Create and manage pickup/service points
 - 💰 **Price Calculation** - Get accurate delivery charges before creating orders
 - 🌍 **Location Services** - Access cities, zones, and areas data
+- 🔔 **Webhook Support** - Verify and handle inbound Pathao webhook events
+- ♻️ **Retry & Circuit Breaker** - Automatic retry with backoff, circuit breaker for resilience
 - ⚡ **Built with Axios** - Reliable HTTP client with request/response interceptors
 - 🛡️ **Error Handling** - Comprehensive error handling with detailed error messages
 - 📚 **Well Documented** - Extensive documentation and examples
@@ -406,6 +409,166 @@ try {
 }
 ```
 
+## Webhooks
+
+The `pathao-merchant-sdk/webhooks` sub-module handles inbound Pathao webhook events. It has **zero extra runtime dependencies** — only Node.js built-ins (`crypto`, `events`).
+
+> **Note:** Pathao has no official webhook documentation. This implementation is based on reverse-engineering the [`pathao-courier`](https://www.npmjs.com/package/pathao-courier) package. The signature scheme is plain shared-secret equality (no HMAC) via constant-time comparison.
+
+### Installation
+
+The webhooks module is a separate entry point. Import it explicitly:
+
+```typescript
+import {
+  PathaoWebhookHandler,
+  constructEvent,
+  verifySignature,
+  PathaoWebhookEvent,
+} from 'pathao-merchant-sdk/webhooks';
+```
+
+```javascript
+// CommonJS
+const { PathaoWebhookHandler } = require('pathao-merchant-sdk/webhooks');
+```
+
+### Quick verification
+
+```typescript
+import { verifySignature } from 'pathao-merchant-sdk/webhooks';
+
+const isValid = verifySignature(
+  req.headers['x-pathao-signature'],
+  process.env.PATHAO_WEBHOOK_SECRET!,
+);
+```
+
+### Verify + parse in one call
+
+```typescript
+import { constructEvent, PathaoWebhookError } from 'pathao-merchant-sdk/webhooks';
+
+app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  try {
+    const payload = constructEvent(
+      req.body,                               // raw Buffer — do NOT pre-parse
+      req.headers,
+      process.env.PATHAO_WEBHOOK_SECRET!,
+    );
+    console.log('Event:', payload.event, payload.data);
+    res.sendStatus(200);
+  } catch (err) {
+    if (err instanceof PathaoWebhookError) {
+      res.status(400).send(err.message);
+    } else {
+      res.sendStatus(500);
+    }
+  }
+});
+```
+
+### Express middleware
+
+```typescript
+import { PathaoWebhookHandler, PathaoWebhookEvent } from 'pathao-merchant-sdk/webhooks';
+
+const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
+
+// Listen for specific events (fully typed payload)
+handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => {
+  console.log('Delivered:', payload.consignment_id);
+});
+
+handler.on(PathaoWebhookEvent.ORDER_CANCELLED, (payload) => {
+  console.log('Cancelled:', payload.consignment_id, payload.reason);
+});
+
+// Catch all events
+handler.on('webhook', (payload) => {
+  console.log('Any event:', payload.event, payload.data);
+});
+
+// Handle errors (invalid signature, bad JSON, etc.)
+handler.on('error', (err) => {
+  console.error('Webhook error:', err.message);
+});
+
+// Mount — must use express.raw() BEFORE this middleware
+app.post(
+  '/webhook/pathao',
+  express.raw({ type: 'application/json' }),
+  handler.expressMiddleware(),
+);
+
+// Access the parsed payload downstream
+app.post('/webhook/pathao', express.raw({ type: 'application/json' }), handler.expressMiddleware(), (req, res) => {
+  console.log(req.pathaoWebhook); // typed PathaoWebhookPayload
+  res.sendStatus(200);
+});
+```
+
+### Generic (non-Express) middleware
+
+```typescript
+const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
+const middleware = handler.middleware();
+
+// Returns { payload, error } — never rejects
+const { payload, error } = await middleware(rawBody, headers);
+if (error) {
+  console.error('Bad webhook:', error.message);
+} else {
+  console.log('Event:', payload!.event);
+}
+```
+
+### Supported event types
+
+| Event constant | Event string |
+|---|---|
+| `ORDER_CREATED` | `order.created` |
+| `ORDER_ACCEPTED` | `order.accepted` |
+| `ORDER_PICKUP_REQUESTED` | `order.pickup_requested` |
+| `ORDER_PICKED` | `order.picked` |
+| `ORDER_IN_TRANSIT` | `order.in_transit` |
+| `ORDER_DELIVERED` | `order.delivered` |
+| `ORDER_CANCELLED` | `order.cancelled` |
+| `ORDER_HOLD` | `order.hold` |
+| `ORDER_RETURN_REQUESTED` | `order.return_requested` |
+| `ORDER_RETURN_PICKUP_REQUESTED` | `order.return_pickup_requested` |
+| `ORDER_RETURN_PICKED` | `order.return_picked` |
+| `ORDER_RETURN_IN_TRANSIT` | `order.return_in_transit` |
+| `ORDER_PARTIAL_DELIVERED` | `order.partial_delivered` |
+| `ORDER_DELIVERY_FAILED` | `order.delivery_failed` |
+| `ORDER_ON_HOLD` | `order.on_hold` |
+| `ORDER_PAID` | `order.paid` |
+| `ORDER_PAID_RETURN` | `order.paid_return` |
+| `ORDER_RETURNED` | `order.returned` |
+| `ORDER_EXCHANGED` | `order.exchanged` |
+| `STORE_CREATED` | `store.created` |
+| `STORE_UPDATED` | `store.updated` |
+
+### TypeScript types
+
+All event payloads are fully typed. Access them via `WebhookEventPayloadMap`:
+
+```typescript
+import type {
+  WebhookEventPayloadMap,
+  PathaoWebhookEvent,
+  OrderDeliveredPayload,
+} from 'pathao-merchant-sdk/webhooks';
+
+// Explicit payload type
+const handler = (payload: OrderDeliveredPayload) => {
+  console.log(payload.consignment_id, payload.amount_to_collect);
+};
+
+// Via mapped type
+type DeliveredPayload = WebhookEventPayloadMap[PathaoWebhookEvent.ORDER_DELIVERED];
+```
+
 ## Authentication
 
 The SDK automatically handles OAuth2 authentication and token refresh. You only need to provide your credentials once during initialization:
@@ -510,6 +673,28 @@ For support, please open an issue on GitHub or contact me at sifatjasim@gmail.co
 This is an **unofficial** SDK and is not affiliated with or endorsed by Pathao. Use at your own risk. The maintainers are not responsible for any issues that may arise from using this package.
 
 ## Changelog
+
+### 2.1.0
+- Added webhook support via `pathao-merchant-sdk/webhooks` sub-path
+- `PathaoWebhookHandler` — EventEmitter with typed `on()` overloads for all 21 event types
+- `constructEvent()` and `verifySignature()` standalone helpers
+- Express middleware and generic async middleware
+- Constant-time signature comparison via `crypto.timingSafeEqual`
+- Fixed case-insensitive header lookup for `X-PATHAO-Signature`
+
+### 2.0.x
+- Added retry logic: 429 reads `Retry-After`, 5xx exponential backoff (max 2 retries)
+- Added circuit breaker: throws `PathaoApiError` (code 503) when open
+- Added `sandbox()` and `production()` named constructors
+- Deferred config validation to first API call
+- HTTPS-only enforcement in `validateConfiguration()`
+- Auth token redacted as `Bearer [REDACTED]` in debug logs
+- Added `User-Agent: pathao-merchant-sdk node/<version>` header
+- `getStores()` accepts optional `page` parameter
+- `validateContactNumber` requires `startsWith('01')`
+- `is_active` and `cod_enabled` typed as `0 | 1`
+- Fixed shell injection in `scripts/release.js` (replaced `execSync` with `spawnSync`)
+- CI/CD: replaced deprecated actions, added version-existence check before publish
 
 ### 1.0.0
 - Initial release

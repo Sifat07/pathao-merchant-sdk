@@ -13,11 +13,6 @@ on:
         - patch
         - minor
         - major
-      skip_tests:
-        description: 'Skip tests (not recommended)'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   manual-release:
@@ -56,7 +51,6 @@ jobs:
         git config --local user.name "GitHub Action"
         
     - name: Run tests
-      if: ${{ !inputs.skip_tests }}
       run: |
         pnpm run lint
         pnpm run type-check
@@ -94,24 +88,33 @@ jobs:
         git push origin main
         git push origin --tags
         
+    - name: Check version does not already exist on npm
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        if npm view pathao-merchant-sdk@$VERSION version > /dev/null 2>&1; then
+          echo "❌ Version $VERSION already exists on npm. Bump the version before releasing."
+          exit 1
+        fi
+        echo "✅ Version $VERSION is new and can be published"
+
     - name: Publish to npm
       run: pnpm publish
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.get_version.outputs.version }}
-        release_name: Release v${{ steps.get_version.outputs.version }}
-        body_path: RELEASE_NOTES.md
-        draft: false
-        prerelease: false
-        
+
     - name: Get version
       id: get_version
       run: |
         VERSION=$(node -p "require('./package.json').version")
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ steps.get_version.outputs.version }}
+        name: Release v${{ steps.get_version.outputs.version }}
+        body_path: RELEASE_NOTES.md
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

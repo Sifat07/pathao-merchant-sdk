@@ -1,6 +1,6 @@
 {
   "name": "pathao-merchant-sdk",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Unofficial Pathao Merchant API SDK for Node.js and TypeScript",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.mjs",
+      "require": "./dist/webhooks.js"
     }
   },
   "sideEffects": false,
@@ -46,7 +51,8 @@
     "bangladesh",
     "shipping",
     "logistics",
-    "ecommerce"
+    "ecommerce",
+    "webhook"
   ],
   "author": "Sifat Jasim <sifatjasim@gmail.com>",
   "license": "MIT",

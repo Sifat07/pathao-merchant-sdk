@@ -5,13 +5,13 @@
  * for both sandbox and live environments.
  */
 
-const { PathaoApiService, DeliveryType, ItemType } = require('../dist/index.js');
+const { PathaoApiService } = require('../dist/index.js');
 
 async function exampleWithEnvVars() {
   console.log('🚀 Pathao SDK with Environment Variables Example\n');
   
-  // The SDK will automatically use PATHAO_BASE_URL from environment variables
-  // If not set, it defaults to the live URL: https://api-hermes.pathao.com
+  // The SDK reads PATHAO_BASE_URL from environment variables.
+  // baseURL is required — the SDK throws on first API call if it is empty.
   
   const pathao = new PathaoApiService({
     baseURL: process.env.PATHAO_BASE_URL || 'https://api-hermes.pathao.com',
@@ -25,14 +25,9 @@ async function exampleWithEnvVars() {
     console.log('🔐 Testing Authentication...');
     const cities = await pathao.getCities();
     console.log(`✅ Authentication successful! Found ${cities.data.data.length} cities`);
-    
-    console.log('\n📊 Current Configuration:');
-    console.log(`- Base URL: ${pathao['config'].baseURL}`);
-    console.log(`- Client ID: ${pathao['config'].clientId}`);
-    console.log(`- Username: ${pathao['config'].username}`);
-    
+
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error:', error instanceof Error ? error.message : String(error));
   }
 }
 

@@ -23,6 +23,10 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/no-non-null-assertion': 'warn',
     '@typescript-eslint/no-var-requires': 'error',
+    // eslint:recommended includes no-dupe-class-members which does NOT understand
+    // TypeScript method overloads. Disable the base rule and use the TS-aware version.
+    'no-dupe-class-members': 'off',
+    '@typescript-eslint/no-dupe-class-members': 'error',
     
     // General rules
     'no-console': 'off', // Allow console.log for SDK logging

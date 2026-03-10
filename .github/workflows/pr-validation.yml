@@ -95,31 +95,32 @@ jobs:
       with:
         script: |
           const fs = require('fs');
-          const path = require('path');
-          
-          // Read package.json to get version info
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          
-          const comment = `## 🔍 PR Validation Results
-          
+          const jobStatus = '${{ job.status }}';
+          const passed = jobStatus === 'success';
+          const icon = passed ? '✅' : '❌';
+
+          const comment = `## ${icon} PR Validation Results
+
           **Package:** \`${pkg.name}@${pkg.version}\`
           **Node.js:** 20.x
-          **Build Status:** ${{ job.status }}
-          
-          ### ✅ Checks Passed:
+          **Build Status:** ${jobStatus.toUpperCase()}
+
+          ${passed
+            ? `### ✅ All Checks Passed:
           - Linting
-          - Type checking  
+          - Type checking
           - Unit tests
           - Build process
-          - Package validation
-          
+          - Package validation`
+            : `### ❌ One or more checks failed — see job logs above for details.`
+          }
+
           ### 📦 Bundle Info:
           - CJS: \`dist/index.js\`
           - ESM: \`dist/index.mjs\`
-          - Types: \`dist/index.d.ts\`
-          
-          Ready for review! 🚀`;
-          
+          - Types: \`dist/index.d.ts\``;
+
           github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,

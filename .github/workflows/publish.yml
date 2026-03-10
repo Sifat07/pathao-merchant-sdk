@@ -68,23 +68,23 @@ jobs:
         
     - name: Create GitHub Release
       if: steps.check-version.outputs.exists == 'false'
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.check-version.outputs.current_version }}
-        release_name: Release v${{ steps.check-version.outputs.current_version }}
+        name: Release v${{ steps.check-version.outputs.current_version }}
         body: |
           ## Release v${{ steps.check-version.outputs.current_version }}
-          
+
           This release was automatically published to npm.
-          
+
           ### Installation
           ```bash
           npm install pathao-merchant-sdk@${{ steps.check-version.outputs.current_version }}
           ```
-          
+
           ### Changes
           See [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
         draft: false
         prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

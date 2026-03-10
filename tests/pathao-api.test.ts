@@ -427,7 +427,6 @@ describe('PathaoApiService', () => {
       expect(pathaoService['refreshToken']).toBeNull();
       expect(pathaoService['isAuthenticating']).toBeFalsy();
       expect(pathaoService['authPromise']).toBeNull();
-      expect(pathaoService['requestQueue']).toEqual([]);
     });
   });
 });

@@ -53,12 +53,13 @@ class ReleaseManager {
   getCommitsSinceLastTag() {
     try {
       const lastTag = this.getLastTag();
-      const range = lastTag ? `${lastTag}..HEAD` : 'HEAD';
-      const commits = execSync(`git log --oneline ${range}`, { encoding: 'utf8' })
-        .trim()
-        .split('\n')
-        .filter(line => line.trim());
-      return commits;
+      const { spawnSync } = require('child_process');
+      const args = lastTag
+        ? ['log', '--oneline', `${lastTag}..HEAD`]
+        : ['log', '--oneline', 'HEAD'];
+      const result = spawnSync('git', args, { encoding: 'utf8' });
+      if (result.status !== 0) return [];
+      return result.stdout.trim().split('\n').filter(line => line.trim());
     } catch (error) {
       console.error('Error getting commits:', error.message);
       return [];
@@ -276,8 +277,10 @@ See the [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
     }
   }
 
-  async run() {
+  run({ dryRun = false, changelogOnly = false } = {}) {
     console.log('🚀 Starting automatic release process...\n');
+    if (dryRun) console.log('ℹ️  DRY RUN — no files will be modified.\n');
+    if (changelogOnly) console.log('ℹ️  CHANGELOG ONLY — version will not be bumped.\n');
     
     // Get commits since last tag
     const commits = this.getCommitsSinceLastTag();
@@ -300,13 +303,13 @@ See the [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
     const changelog = this.generateChangelog(newVersion, commits, versionType);
     const releaseNotes = this.generateReleaseNotes(newVersion, versionType);
     
-    // Update files
-    this.updatePackageJson(newVersion);
-    this.updateChangelog(changelog);
-    this.writeReleaseNotes(releaseNotes);
-    
-    // Create git tag
-    this.createGitTag(newVersion);
+    // Update files (skip on dry run or changelog-only for version)
+    if (!dryRun && !changelogOnly) this.updatePackageJson(newVersion);
+    if (!dryRun) this.updateChangelog(changelog);
+    if (!dryRun) this.writeReleaseNotes(releaseNotes);
+
+    // Create git tag (skip on dry run or changelog-only)
+    if (!dryRun && !changelogOnly) this.createGitTag(newVersion);
     
     console.log('\n🎉 Release process completed!');
     console.log(`📦 New version: ${newVersion}`);
@@ -326,11 +329,16 @@ See the [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
 
 // Run the release manager
 if (require.main === module) {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+  const changelogOnly = args.includes('--changelog-only');
   const releaseManager = new ReleaseManager();
-  releaseManager.run().catch(error => {
+  try {
+    releaseManager.run({ dryRun, changelogOnly });
+  } catch (error) {
     console.error('❌ Release process failed:', error.message);
     process.exit(1);
-  });
+  }
 }
 
 module.exports = ReleaseManager;
