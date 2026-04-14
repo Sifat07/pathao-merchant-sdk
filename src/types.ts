@@ -194,7 +194,7 @@ export interface PathaoConfig {
   clientSecret: string;
   username: string;
   password: string;
-  baseURL: string;
+  baseURL?: string;
   timeout?: number;  // Optional - defaults to 30000 if not provided
 }
 

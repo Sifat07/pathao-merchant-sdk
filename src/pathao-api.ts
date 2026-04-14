@@ -31,6 +31,7 @@ import {
   PathaoOrderStatusResponse,
   PathaoPriceRequest,
   PathaoPriceResponse,
+  PathaoStore,
   PathaoStoreCreateResponse,
   PathaoStoreListResponse,
   PathaoStoreRequest,
@@ -121,12 +122,12 @@ export class PathaoApiService {
     };
 
     this.pathaoClient = axios.create({
-      baseURL: this.config.baseURL,
+      ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       timeout: this.config.timeout,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'User-Agent': `pathao-merchant-sdk node/${  process.version}`,
+        'User-Agent': `pathao-merchant-sdk node/${process.version}`,
       },
     });
 
@@ -209,8 +210,11 @@ export class PathaoApiService {
           }
         }
 
-        // Handle circuit breaker
-        this.handleCircuitBreaker();
+        // Handle circuit breaker for network, 5xx, or specific auth/rate-limit failures
+        const isUserError = status !== undefined && status >= 400 && status < 500 && status !== 401 && status !== 429;
+        if (!isUserError) {
+          this.handleCircuitBreaker();
+        }
         return Promise.reject(error);
       },
     );
@@ -420,6 +424,13 @@ export class PathaoApiService {
     orderData: PathaoOrderRequest,
   ): Promise<PathaoOrderResponse> {
     try {
+      if (!PathaoApiService.validatePhoneNumber(orderData.recipient_phone)) {
+        throw new PathaoApiError('Validation failed: Invalid recipient_phone format', { code: 400 });
+      }
+      if (!PathaoApiService.validateWeight(orderData.item_weight)) {
+        throw new PathaoApiError('Validation failed: Invalid item_weight (must be 0.5 to 10)', { code: 400 });
+      }
+
       const response = await this.pathaoClient.post<PathaoOrderResponse>(
         '/aladdin/api/v1/orders',
         orderData,
@@ -455,6 +466,28 @@ export class PathaoApiService {
       return response.data;
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao stores');
+    }
+  }
+
+  // Official Pathao API: Get All Stores (Auto-paginating helper)
+  async getStoresAll(): Promise<PathaoStore[]> {
+    try {
+      let currentPage = 1;
+      let lastPage = 1;
+      const allStores: PathaoStore[] = [];
+
+      do {
+        const response = await this.getStores(currentPage);
+        if (response.data?.data) {
+          allStores.push(...response.data.data);
+        }
+        lastPage = response.data?.last_page || 1;
+        currentPage++;
+      } while (currentPage <= lastPage);
+
+      return allStores;
+    } catch (error: unknown) {
+      throw this.toPathaoApiError(error, 'Failed to fetch all Pathao stores');
     }
   }
 
@@ -609,11 +642,11 @@ export class PathaoApiService {
   // Static factory method to create instance from environment variables
   static fromEnv(options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
     const config: PathaoConfig = {
-      clientId: '',
-      clientSecret: '',
-      username: '',
-      password: '',
-      baseURL: '',
+      clientId: process.env.PATHAO_CLIENT_ID || '',
+      clientSecret: process.env.PATHAO_CLIENT_SECRET || '',
+      username: process.env.PATHAO_USERNAME || '',
+      password: process.env.PATHAO_PASSWORD || '',
+      baseURL: process.env.PATHAO_BASE_URL || '',
     };
     return new PathaoApiService(config, options);
   }

@@ -3,35 +3,15 @@
  *
  * Handles incoming webhook events from Pathao.
  *
- * IMPORTANT: The official Pathao API documentation does not describe a webhook
- * specification. This implementation is based on observed webhook behaviour and
- * community research. Treat it as best-effort until Pathao publishes official
- * webhook docs.
- *
- * Signature mechanism: Pathao sends the raw shared secret in the
- * `X-PATHAO-Signature` header. There is no HMAC — the header value IS the
- * secret. A constant-time comparison is used to prevent timing attacks.
- *
- * @example — framework-agnostic
- * ```typescript
- * import {
- *   PathaoWebhookHandler,
- *   PathaoWebhookEvent,
- * } from 'pathao-merchant-sdk/webhooks';
- *
- * const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
- *
- * handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => {
- *   console.log(payload.consignment_id, payload.collected_amount);
- * });
- *
- * // In your HTTP server — raw body as Buffer/string required:
- * const event = handler.process(rawBody, req.headers);
- * res.status(200).json({ received: true });
- * ```
+ * IMPORTANT INTEGRATION DETAILS:
+ * - Pathao does NOT sign incoming requests.
+ * - Instead, Pathao requires you to prove ownership by echoing your webhook secret
+ *   in the \`X-Pathao-Merchant-Webhook-Integration-Secret\` header of EVERY response.
+ * - This SDK automatically handles the \`webhook_integration\` handshake event, which
+ *   expects a 202 status code and the secret header.
  *
  * @example — Express
- * ```typescript
+ * \`\`\`typescript
  * import express from 'express';
  * import {
  *   PathaoWebhookHandler,
@@ -43,16 +23,20 @@
  *
  * handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => { ... });
  *
- * // Mount express.raw() BEFORE the webhook middleware
+ * // Mount express.json() BEFORE the webhook middleware
  * app.post(
  *   '/webhooks/pathao',
- *   express.raw({ type: 'application/json' }),
+ *   express.json(),
  *   handler.expressMiddleware(),
+ *   (req, res) => {
+ *     // The middleware already sets the required secret header.
+ *     // You just need to return a 200 OK for standard events.
+ *     res.status(200).send('OK');
+ *   }
  * );
- * ```
+ * \`\`\`
  */
 
-import { timingSafeEqual } from 'crypto';
 import { EventEmitter } from 'events';
 
 // ---------------------------------------------------------------------------
@@ -72,9 +56,10 @@ export class PathaoWebhookError extends Error {
 
 /**
  * All webhook event types emitted by Pathao.
- * Values are the exact strings that appear in the `event` field of each payload.
+ * Values are the exact strings that appear in the \`event\` field of each payload.
  */
 export enum PathaoWebhookEvent {
+  WEBHOOK_INTEGRATION             = 'webhook_integration',
   ORDER_CREATED                   = 'order.created',
   ORDER_UPDATED                   = 'order.updated',
   ORDER_PICKUP_REQUESTED          = 'order.pickup-requested',
@@ -102,13 +87,16 @@ export enum PathaoWebhookEvent {
 // Payload types
 // ---------------------------------------------------------------------------
 
-/** Fields present on every webhook payload */
+export interface WebhookIntegrationPayload {
+  event: PathaoWebhookEvent.WEBHOOK_INTEGRATION;
+}
+
+/** Fields present on every normal webhook payload */
 export interface BaseWebhookPayload {
-  /** Dot-notation event type — matches a `PathaoWebhookEvent` value */
   event: string;
-  /** ISO timestamp of when the state change occurred */
+  /** Format: MySQL datetime YYYY-MM-DD HH:MM:SS (no timezone indicator) */
   updated_at: string;
-  /** ISO timestamp of when this webhook was dispatched */
+  /** Format: ISO 8601 timestamp */
   timestamp: string;
 }
 
@@ -230,6 +218,7 @@ export interface StoreUpdatedPayload extends StoreWebhookPayload {
 
 /** Union of all possible webhook payloads */
 export type PathaoWebhookPayload =
+  | WebhookIntegrationPayload
   | OrderCreatedPayload
   | OrderUpdatedPayload
   | OrderPickupRequestedPayload
@@ -252,8 +241,9 @@ export type PathaoWebhookPayload =
   | StoreCreatedPayload
   | StoreUpdatedPayload;
 
-/** Maps each `PathaoWebhookEvent` to its specific payload type */
+/** Maps each \`PathaoWebhookEvent\` to its specific payload type */
 export interface WebhookEventPayloadMap {
+  [PathaoWebhookEvent.WEBHOOK_INTEGRATION]:             WebhookIntegrationPayload;
   [PathaoWebhookEvent.ORDER_CREATED]:                   OrderCreatedPayload;
   [PathaoWebhookEvent.ORDER_UPDATED]:                   OrderUpdatedPayload;
   [PathaoWebhookEvent.ORDER_PICKUP_REQUESTED]:          OrderPickupRequestedPayload;
@@ -281,70 +271,30 @@ export interface WebhookEventPayloadMap {
 // Core functions
 // ---------------------------------------------------------------------------
 
-/** Signature header name sent by Pathao on every webhook request */
-export const PATHAO_SIGNATURE_HEADER = 'x-pathao-signature';
+/** Required response header used to authorize your endpoint with Pathao */
+export const PATHAO_SECRET_HEADER = 'x-pathao-merchant-webhook-integration-secret';
 
 /**
- * Verify the `X-PATHAO-Signature` header against the configured webhook secret.
+ * Parses the raw body into a webhook payload.
+ * Pathao does not sign inbound requests, so this just ensures it is valid JSON with an event field.
  *
- * Uses a constant-time comparison to prevent timing attacks. The header value
- * is the raw shared secret — Pathao does not hash the signature.
+ * Throws \`PathaoWebhookError\` on malformed JSON or missing event.
  *
- * @returns `true` if valid, `false` if missing or mismatched.
- */
-export function verifySignature(
-  signature: string | undefined,
-  webhookSecret: string,
-): boolean {
-  if (!signature || !webhookSecret) return false;
-
-  try {
-    const sigBuf    = Buffer.from(signature,     'utf8');
-    const secretBuf = Buffer.from(webhookSecret, 'utf8');
-    if (sigBuf.length !== secretBuf.length) return false;
-    return timingSafeEqual(sigBuf, secretBuf);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Verify the webhook signature and parse the raw body in one step.
- *
- * Throws `PathaoWebhookError` on signature failure or malformed JSON.
- *
- * @param rawBody       Raw request body — do NOT pre-parse with `JSON.parse`
- * @param headers       Request headers object
- * @param webhookSecret Your Pathao webhook integration secret
+ * @param rawBody       Raw request body or parsed object
  */
 export function constructEvent(
-  rawBody: Buffer | string,
-  headers: Record<string, string | string[] | undefined>,
-  webhookSecret: string,
+  rawBody: Buffer | string | object,
 ): PathaoWebhookPayload {
-  const signature = extractHeader(headers, PATHAO_SIGNATURE_HEADER);
-
-  if (!signature) {
-    throw new PathaoWebhookError(
-      `Missing ${PATHAO_SIGNATURE_HEADER} header. ` +
-      'Ensure Pathao is sending the signature.',
-    );
-  }
-
-  if (!verifySignature(signature, webhookSecret)) {
-    throw new PathaoWebhookError(
-      'Invalid webhook signature. ' +
-      'Check that your webhookSecret matches the Pathao integration secret.',
-    );
-  }
-
-  const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
-
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(bodyStr);
-  } catch {
-    throw new PathaoWebhookError('Webhook payload is not valid JSON.');
+  if (typeof rawBody === 'object' && !Buffer.isBuffer(rawBody)) {
+    parsed = rawBody;
+  } else {
+    const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
+    try {
+      parsed = JSON.parse(bodyStr);
+    } catch {
+      throw new PathaoWebhookError('Webhook payload is not valid JSON.');
+    }
   }
 
   if (
@@ -353,7 +303,7 @@ export function constructEvent(
     !('event' in parsed)
   ) {
     throw new PathaoWebhookError(
-      'Webhook payload is missing the required `event` field.',
+      'Webhook payload is missing the required \`event\` field.',
     );
   }
 
@@ -364,21 +314,26 @@ export function constructEvent(
 // PathaoWebhookHandler
 // ---------------------------------------------------------------------------
 
-type GenericHeaders = Record<string, string | string[] | undefined>;
+export type WebhookResponseInstructions = {
+  statusCode: number;
+  headers: Record<string, string>;
+  payload: PathaoWebhookPayload | null;
+  error: PathaoWebhookError | null;
+};
 
 /**
- * Stateful webhook handler that verifies incoming requests, parses payloads,
+ * Stateful webhook handler that parses payloads, provides response instructions,
  * and dispatches events to typed listeners.
  *
  * @example
- * ```typescript
+ * \`\`\`typescript
  * const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
  *
  * handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => {
  *   // payload is fully typed as OrderDeliveredPayload
  *   console.log(payload.consignment_id, payload.collected_amount);
  * });
- * ```
+ * \`\`\`
  */
 export class PathaoWebhookHandler extends EventEmitter {
   private readonly webhookSecret: string;
@@ -400,36 +355,49 @@ export class PathaoWebhookHandler extends EventEmitter {
     event: E,
     listener: (payload: WebhookEventPayloadMap[E]) => void,
   ): this;
-  /** Fires for every successfully verified event regardless of type. */
+  /** Fires for every successfully parsed event regardless of type. */
   on(event: 'webhook', listener: (payload: PathaoWebhookPayload) => void): this;
-  /** Fires when verification or parsing fails. */
+  /** Fires when parsing fails. */
   on(event: 'error', listener: (error: PathaoWebhookError) => void): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string | symbol, listener: (...args: any[]) => void): this {
     return super.on(event, listener);
   }
 
+  /** Listen once for a specific Pathao event. */
+  once<E extends PathaoWebhookEvent>(
+    event: E,
+    listener: (payload: WebhookEventPayloadMap[E]) => void,
+  ): this;
+  once(event: 'webhook', listener: (payload: PathaoWebhookPayload) => void): this;
+  once(event: 'error', listener: (error: PathaoWebhookError) => void): this;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.once(event, listener);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Verify the signature, parse the body, and dispatch the event.
+   * Parse the body and dispatch the event.
    *
-   * Throws `PathaoWebhookError` on failure and also emits `'error'` so
+   * Throws \`PathaoWebhookError\` on failure and also emits \`'error'\` so
    * listeners can respond without a try/catch.
    *
-   * @param rawBody  Raw request body — must NOT be pre-parsed
-   * @param headers  HTTP request headers
+   * @param rawBody  Raw request body or matched json object
    */
-  process(rawBody: Buffer | string, headers: GenericHeaders): PathaoWebhookPayload {
+  process(rawBody: Buffer | string | object): PathaoWebhookPayload {
     let payload: PathaoWebhookPayload;
 
     try {
-      payload = constructEvent(rawBody, headers, this.webhookSecret);
+      payload = constructEvent(rawBody);
     } catch (err) {
       const webhookErr = err instanceof PathaoWebhookError
         ? err
         : new PathaoWebhookError(err instanceof Error ? err.message : 'Unknown error');
-      this.emit('error', webhookErr);
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', webhookErr);
+      }
       throw webhookErr;
     }
 
@@ -442,91 +410,106 @@ export class PathaoWebhookHandler extends EventEmitter {
   /**
    * Returns an Express-compatible middleware function.
    *
-   * **Requires** `express.raw({ type: 'application/json' })` mounted on the
-   * same route before this middleware so the raw body Buffer is preserved.
+   * Automatically sets the required \`X-Pathao-Merchant-Webhook-Integration-Secret\` header.
+   * Automatically responds with 202 for the \`webhook_integration\` handshake.
+   * For standard events, attaches the payload to \`req.pathaoWebhook\` and calls \`next()\`.
+   * On error, calls \`next(err)\`.
    *
-   * On success the parsed payload is attached to `req.pathaoWebhook`.
-   * On failure a `400` response is returned.
-   *
-   * ```typescript
+   * \`\`\`typescript
    * app.post(
    *   '/webhooks/pathao',
-   *   express.raw({ type: 'application/json' }),
+   *   express.json(),
    *   handler.expressMiddleware(),
+   *   (req, res) => res.sendStatus(200) // You must send 200 for other events
    * );
-   * ```
+   * \`\`\`
    */
   expressMiddleware() {
     return (
       req: {
-        body: Buffer | string;
-        headers: GenericHeaders;
+        body: Buffer | string | object;
         pathaoWebhook?: PathaoWebhookPayload;
       },
-      res: { status: (code: number) => { json: (body: unknown) => void } },
+      res: {
+        setHeader: (name: string, value: string) => void;
+        status: (code: number) => { send: () => void };
+      },
       next: (err?: unknown) => void,
     ): void => {
       try {
-        req.pathaoWebhook = this.process(req.body, req.headers);
+        res.setHeader(PATHAO_SECRET_HEADER, this.webhookSecret);
+        
+        const payload = this.process(req.body);
+        req.pathaoWebhook = payload;
+        
+        if (payload.event === PathaoWebhookEvent.WEBHOOK_INTEGRATION) {
+          res.status(202).send();
+          return;
+        }
+
         next();
       } catch (err) {
-        res.status(400).json({
-          error: err instanceof Error ? err.message : 'Webhook processing failed',
-        });
+        next(err);
       }
     };
   }
 
   /**
-   * Returns a generic async handler for any framework (Fastify, Hono, plain
-   * `http.createServer`, etc.).
+   * Returns response instructions for any framework (Fastify, Hono, etc.).
    *
-   * Never rejects — always resolves with either `{ payload, error: null }` or
-   * `{ payload: null, error: PathaoWebhookError }`.
+   * Never throws — always resolves with a \`WebhookResponseInstructions\` object
+   * that tells you which status code and headers to return, along with the payload/error.
    *
-   * ```typescript
+   * \`\`\`typescript
    * const handle = handler.middleware();
-   * const { payload, error } = await handle(rawBody, request.headers);
-   * if (error) { reply.status(400).send({ error: error.message }); return; }
-   * reply.send({ received: true });
-   * ```
+   * const instructions = await handle(request.body);
+   * 
+   * // Apply the required headers (the secret header)
+   * for (const [key, value] of Object.entries(instructions.headers)) {
+   *   reply.header(key, value);
+   * }
+   * 
+   * if (instructions.error) {
+   *   return reply.status(instructions.statusCode).send({ error: instructions.error.message });
+   * }
+   * 
+   * // If it was the handshake, we should just return 202 as instructed
+   * if (instructions.payload?.event === 'webhook_integration') {
+   *   return reply.status(instructions.statusCode).send();
+   * }
+   * 
+   * // Process your real webhook
+   * return reply.status(instructions.statusCode).send({ received: true });
+   * \`\`\`
    */
   middleware() {
     return async (
-      rawBody: Buffer | string,
-      headers: GenericHeaders,
-    ): Promise<
-      | { payload: PathaoWebhookPayload; error: null }
-      | { payload: null; error: PathaoWebhookError }
-    > => {
+      rawBody: Buffer | string | object,
+    ): Promise<WebhookResponseInstructions> => {
+      const headers = { [PATHAO_SECRET_HEADER]: this.webhookSecret };
+      
       try {
-        const payload = this.process(rawBody, headers);
-        return { payload, error: null };
+        const payload = this.process(rawBody);
+        const isHandshake = payload.event === PathaoWebhookEvent.WEBHOOK_INTEGRATION;
+        return {
+          statusCode: isHandshake ? 202 : 200,
+          headers,
+          payload,
+          error: null
+        };
       } catch (err) {
         const webhookErr = err instanceof PathaoWebhookError
           ? err
           : new PathaoWebhookError(
             err instanceof Error ? err.message : 'Unknown error',
           );
-        return { payload: null, error: webhookErr };
+        return {
+          statusCode: 400,
+          headers,
+          payload: null,
+          error: webhookErr
+        };
       }
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Extract a single-value header, case-insensitively */
-function extractHeader(
-  headers: GenericHeaders,
-  name: string,
-): string | undefined {
-  const lower = name.toLowerCase();
-  const key = Object.keys(headers).find(k => k.toLowerCase() === lower);
-  if (!key) return undefined;
-  const value = headers[key];
-  if (Array.isArray(value)) return value[0];
-  return value;
 }
