@@ -1,6 +1,6 @@
 {
   "name": "pathao-merchant-sdk",
-  "version": "2.2.0",
+  "version": "2.1.1",
   "description": "Unofficial TypeScript SDK for the Pathao Merchant API",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
