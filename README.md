@@ -1,4 +1,4 @@
-# Pathao Merchant API SDK
+# Pathao Merchant SDK
 
 [![npm version](https://img.shields.io/npm/v/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
 [![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
@@ -6,48 +6,36 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/sifat07/pathao-merchant-sdk/ci.yml?branch=main)](https://github.com/sifat07/pathao-merchant-sdk/actions)
 
-An **unofficial** TypeScript SDK for integrating with the Pathao Merchant API. This community package provides a clean, type-safe interface for all Pathao Merchant API operations including order management, store management, price calculation, and more.
+An **unofficial** TypeScript SDK for the [Pathao Courier Merchant API](https://merchant.pathao.com/developer). Provides a type-safe interface for order management, store management, price calculation, location lookup, and webhook handling.
 
-> **Disclaimer**: This is not an official package from Pathao. It's a community-maintained SDK based on the public Pathao Merchant API documentation.
+> **Disclaimer:** This is a community-maintained package, not an official Pathao product. It is not affiliated with or endorsed by Pathao.
 
 ## Table of Contents
-- [Features](#features)
+
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
-- [Environment Variables](#environment-variables)
-- [What You Can Do](#what-you-can-do)
 - [API Reference](#api-reference)
-- [Examples](#examples)
+  - [Order Management](#order-management)
+  - [Bulk Orders](#bulk-orders)
+  - [Store Management](#store-management)
+  - [Price Calculation](#price-calculation)
+  - [Location Services](#location-services)
+  - [Validation Helpers](#validation-helpers)
 - [Error Handling](#error-handling)
 - [Webhooks](#webhooks)
-- [Authentication](#authentication)
-- [Official Documentation](#official-documentation)
+- [TypeScript Types](#typescript-types)
 - [Contributing](#contributing)
-- [Development](#development)
 - [License](#license)
-- [Support](#support)
 - [Changelog](#changelog)
 
-## Features
-
-- 🚀 **Full TypeScript Support** - Complete type definitions for all API responses
-- 🔐 **Automatic Authentication** - Handles OAuth2 token management and refresh
-- 📦 **Order Management** - Create, track, and manage delivery orders
-- 🏪 **Store Management** - Create and manage pickup/service points
-- 💰 **Price Calculation** - Get accurate delivery charges before creating orders
-- 🌍 **Location Services** - Access cities, zones, and areas data
-- 🔔 **Webhook Support** - Verify and handle inbound Pathao webhook events
-- ♻️ **Retry & Circuit Breaker** - Automatic retry with backoff, circuit breaker for resilience
-- ⚡ **Built with Axios** - Reliable HTTP client with request/response interceptors
-- 🛡️ **Error Handling** - Comprehensive error handling with detailed error messages
-- 📚 **Well Documented** - Extensive documentation and examples
+---
 
 ## Requirements
 
-- Node.js >= 18 (see `engines` in `package.json`)
-- TypeScript >= 4.9 (peer dependency; repository uses 5.x)
+- Node.js >= 18
+- TypeScript >= 4.9 (peer dependency)
 
 ## Installation
 
@@ -61,55 +49,70 @@ pnpm add pathao-merchant-sdk
 
 ## Quick Start
 
-```typescript
-import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
+Use the sandbox credentials below to get started immediately. For production, get your credentials from the [Pathao Merchant Dashboard](https://merchant.pathao.com/developer) under **API Credentials**.
 
-// Initialize the SDK
-const pathao = new PathaoApiService({
-  baseURL: 'https://api-hermes.pathao.com', // or use PATHAO_BASE_URL env var
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
-  username: 'your-username',
-  password: 'your-password'
+**Sandbox credentials (publicly provided by Pathao for testing):**
+
+| Field          | Value                                      |
+| -------------- | ------------------------------------------ |
+| `baseURL`      | `https://courier-api-sandbox.pathao.com`   |
+| `clientId`     | `7N1aMJQbWm`                               |
+| `clientSecret` | `wRcaibZkUdSNz2EI9ZyuXLlNrnAv0TdPUPXMnD39` |
+| `username`     | `test@pathao.com`                          |
+| `password`     | `lovePathao`                               |
+
+```typescript
+import { PathaoApiService, DeliveryType, ItemType } from "pathao-merchant-sdk";
+
+const pathao = PathaoApiService.fromConfig({
+  baseURL: "https://courier-api-sandbox.pathao.com",
+  clientId: "7N1aMJQbWm",
+  clientSecret: "wRcaibZkUdSNz2EI9ZyuXLlNrnAv0TdPUPXMnD39",
+  username: "test@pathao.com",
+  password: "lovePathao",
 });
 
-// Create a delivery order
 const order = await pathao.createOrder({
-  store_id: 123,
-  recipient_name: 'John Doe',
-  recipient_phone: '01712345678',
-  recipient_address: '123 Main Street, Dhanmondi, Dhaka',
+  store_id: 12345,
+  recipient_name: "John Doe",
+  recipient_phone: "01712345678",
+  recipient_address: "House 10, Road 5, Dhanmondi, Dhaka",
   delivery_type: DeliveryType.NORMAL,
   item_type: ItemType.PARCEL,
   item_quantity: 1,
-  item_weight: 1.0,
-  amount_to_collect: 500
+  item_weight: 0.5,
+  amount_to_collect: 500,
 });
 
-console.log('Order created:', order.data.consignment_id);
+console.log("Consignment ID:", order.data.consignment_id);
 ```
 
-## Environment Variables
+---
 
-Copy `env.example` to `.env` and fill in your credentials. If your runtime does not auto-load environment files, install and load `dotenv`:
+## Configuration
+
+### Environments
+
+|             | Sandbox                                  | Production                      |
+| ----------- | ---------------------------------------- | ------------------------------- |
+| `baseURL`   | `https://courier-api-sandbox.pathao.com` | `https://api-hermes.pathao.com` |
+| Credentials | From merchant dashboard (sandbox tab)    | From merchant dashboard         |
+
+Obtain your `client_id`, `client_secret`, username, and password from the **API Credentials** section of the [Pathao Merchant Dashboard](https://merchant.pathao.com/developer).
+
+### Environment Variables
+
+Copy `env.example` to `.env`:
 
 ```bash
 cp env.example .env
-npm install dotenv --save-dev # or yarn add -D dotenv / pnpm add -D dotenv
 ```
-
-```typescript
-import 'dotenv/config';
-```
-
-Required and optional variables:
 
 ```env
-# Base URL (choose one)
-PATHAO_BASE_URL=https://courier-api-sandbox.pathao.com   # sandbox
-# PATHAO_BASE_URL=https://api-hermes.pathao.com          # production
+# Choose one:
+PATHAO_BASE_URL=https://courier-api-sandbox.pathao.com
+# PATHAO_BASE_URL=https://api-hermes.pathao.com
 
-# Authentication (required)
 PATHAO_CLIENT_ID=your-client-id
 PATHAO_CLIENT_SECRET=your-client-secret
 PATHAO_USERNAME=your-username
@@ -119,103 +122,65 @@ PATHAO_PASSWORD=your-password
 PATHAO_TIMEOUT=30000
 ```
 
-## What You Can Do
-
-- Create, price, and track delivery orders
-- Manage stores (pickup/service points)
-- Look up cities, zones, and areas
-- Validate phone, address, weight, and recipient inputs
-- Automatically handle OAuth2 authentication and token refresh
-
-## API Reference
-
-### Configuration
+If you use `dotenv`, load it before initializing the SDK:
 
 ```typescript
-interface PathaoConfig {
-  clientId: string;        // Your Pathao API client ID
-  clientSecret: string;    // Your Pathao API client secret
-  username: string;        // Your Pathao API username
-  password: string;        // Your Pathao API password
-  baseURL: string;         // API base URL (required)
-  timeout?: number;        // Request timeout in ms (default: 30000)
-}
+import "dotenv/config";
 ```
 
-#### Environment Variables
-
-The SDK automatically reads the variables listed in the [Environment Variables](#environment-variables) section when present, and falls back to the values you pass in the config.
+### Factory Methods
 
 ```typescript
-// Option 1: All from environment variables
-const pathao = new PathaoApiService({});
-
-// Option 2: Mix of config and environment variables
-const pathao = new PathaoApiService({
-  baseURL: 'https://api-hermes.pathao.com', // This overrides PATHAO_BASE_URL
-  clientId: 'your-client-id', // This overrides PATHAO_CLIENT_ID
-  // Other credentials will be taken from environment variables
-});
-
-// Option 3: All from config (environment variables as fallback)
-const pathao = new PathaoApiService({
-  baseURL: process.env.PATHAO_BASE_URL || 'https://api-hermes.pathao.com',
-  clientId: process.env.PATHAO_CLIENT_ID || 'your-client-id',
-  clientSecret: process.env.PATHAO_CLIENT_SECRET || 'your-client-secret',
-  username: process.env.PATHAO_USERNAME || 'your-username',
-  password: process.env.PATHAO_PASSWORD || 'your-password',
-});
-```
-
-#### Factory Methods
-
-The SDK provides convenient factory methods for common initialization patterns:
-
-```typescript
-// Create from environment variables
+// From environment variables
 const pathao = PathaoApiService.fromEnv();
 
-// Create from environment with additional options
+// From environment with options
 const pathao = PathaoApiService.fromEnv({
-  debug: true, // Enable debug logging
-  circuitBreaker: {
-    threshold: 10,    // Number of failures before opening circuit (default: 5)
-    timeout: 120000   // Timeout before attempting to close circuit (default: 60000ms)
-  }
+  debug: true,
+  circuitBreaker: { threshold: 10, timeout: 120_000 },
 });
 
-// Create from explicit config
+// From explicit config
 const pathao = PathaoApiService.fromConfig({
-  baseURL: 'https://api-hermes.pathao.com',
-  clientId: 'client-id',
-  clientSecret: 'client-secret',
-  username: 'username',
-  password: 'password',
-  timeout: 5000
-}, {
-  debug: true,
-  circuitBreaker: { threshold: 8 }
+  baseURL: "https://api-hermes.pathao.com",
+  clientId: "your-client-id",
+  clientSecret: "your-client-secret",
+  username: "your-username",
+  password: "your-password",
+});
+
+// Named constructors (pre-fill the base URL)
+const pathao = PathaoApiService.sandbox({
+  clientId,
+  clientSecret,
+  username,
+  password,
+});
+const pathao = PathaoApiService.production({
+  clientId,
+  clientSecret,
+  username,
+  password,
 });
 ```
 
-#### Advanced Options
+### Options
 
 ```typescript
 const pathao = new PathaoApiService(config, {
-  debug: false,           // Enable detailed debug logging (default: false)
+  debug: false, // Log all HTTP requests/responses (default: false)
   circuitBreaker: {
-    threshold: 5,         // Failures before opening circuit (default: 5)
-    timeout: 60000        // Wait time before retry (default: 60000ms = 1 min)
-  }
+    threshold: 5, // Failures before opening circuit (default: 5)
+    timeout: 60_000, // Ms before attempting to close circuit (default: 60000)
+  },
 });
 ```
 
-When `debug` is enabled, the SDK logs all HTTP requests and responses:
+Configuration validation is **deferred** to the first API call — constructing the SDK never throws.
 
-```
-[Pathao SDK] GET /aladdin/api/v1/stores { headers: {...}, data: {...} }
-[Pathao SDK] Response 200 { url: '...', data: {...} }
-```
+---
+
+## API Reference
 
 ### Order Management
 
@@ -223,30 +188,74 @@ When `debug` is enabled, the SDK logs all HTTP requests and responses:
 
 ```typescript
 const order = await pathao.createOrder({
-  store_id: 123,
-  merchant_order_id: 'ORDER-123', // Optional: Your order tracking ID
-  recipient_name: 'John Doe',
-  recipient_phone: '01712345678',
-  recipient_secondary_phone: '01712345679', // Optional
-  recipient_address: '123 Main Street, Dhanmondi',
-  recipient_city: 1, // Optional: Auto-detected if not provided
-  recipient_zone: 1, // Optional: Auto-detected if not provided
-  recipient_area: 1, // Optional: Auto-detected if not provided
-  delivery_type: DeliveryType.NORMAL, // 48 for Normal, 12 for On Demand
-  item_type: ItemType.PARCEL, // 1 for Document, 2 for Parcel
-  special_instruction: 'Call before delivery', // Optional
-  item_quantity: 1,
-  item_weight: 1.0, // 0.5-10 kg
-  item_description: 'Electronics', // Optional
-  amount_to_collect: 500 // COD amount (0 for non-COD)
+  store_id: 12345, // Required — your store ID
+  merchant_order_id: "ORDER-001", // Optional — your internal tracking ID
+  recipient_name: "John Doe", // Required — 3–100 characters
+  recipient_phone: "01712345678", // Required — 11 digits, starts with 01
+  recipient_secondary_phone: "01812345678", // Optional
+  recipient_address: "House 10, Road 5, Dhanmondi, Dhaka", // Required — 10–220 chars
+  recipient_city: 1, // Optional — auto-detected if omitted
+  recipient_zone: 1, // Optional — auto-detected if omitted
+  recipient_area: 1, // Optional — auto-detected if omitted
+  delivery_type: DeliveryType.NORMAL, // Required — NORMAL (48) or ON_DEMAND (12)
+  item_type: ItemType.PARCEL, // Required — DOCUMENT (1) or PARCEL (2)
+  item_quantity: 1, // Required
+  item_weight: 0.5, // Required — 0.5–10 kg
+  item_description: "Cotton shirt", // Optional
+  special_instruction: "Call before delivery", // Optional
+  amount_to_collect: 500, // Required — COD amount; 0 for prepaid
 });
+
+// Response
+console.log(order.data.consignment_id); // Pathao tracking ID
+console.log(order.data.merchant_order_id);
+console.log(order.data.order_status); // "Pending"
+console.log(order.data.delivery_fee); // number
 ```
 
 #### Get Order Status
 
 ```typescript
-const status = await pathao.getOrderStatus('consignment-id');
-console.log('Order status:', status.data.order_status);
+const info = await pathao.getOrderStatus("DL121224VS8TTJ");
+
+console.log(info.data.consignment_id);
+console.log(info.data.order_status);
+console.log(info.data.order_status_slug);
+console.log(info.data.updated_at); // "YYYY-MM-DD HH:MM:SS"
+console.log(info.data.invoice_id); // string | null
+```
+
+### Bulk Orders
+
+```typescript
+const result = await pathao.createBulkOrder([
+  {
+    store_id: 12345,
+    recipient_name: "Alice",
+    recipient_phone: "01712345678",
+    recipient_address: "House 10, Road 5, Dhanmondi, Dhaka",
+    delivery_type: DeliveryType.NORMAL,
+    item_type: ItemType.PARCEL,
+    item_quantity: 1,
+    item_weight: 0.5,
+    amount_to_collect: 300,
+  },
+  {
+    store_id: 12345,
+    recipient_name: "Bob",
+    recipient_phone: "01812345678",
+    recipient_address: "House 3, Road 14, Gulshan, Dhaka",
+    delivery_type: DeliveryType.NORMAL,
+    item_type: ItemType.PARCEL,
+    item_quantity: 2,
+    item_weight: 1.0,
+    amount_to_collect: 800,
+  },
+]);
+
+// Bulk order creation is asynchronous — response is HTTP 202
+console.log(result.code); // 202
+console.log(result.data); // true
 ```
 
 ### Store Management
@@ -255,208 +264,238 @@ console.log('Order status:', status.data.order_status);
 
 ```typescript
 const store = await pathao.createStore({
-  name: 'My Store',
-  contact_name: 'Store Manager',
-  contact_number: '01712345678',
-  address: '123 Store Street, Dhanmondi',
-  city_id: 1,
-  zone_id: 1,
-  area_id: 1
+  name: "My Dhaka Store", // Required — 3–50 characters
+  contact_name: "Store Manager", // Required — 3–50 characters
+  contact_number: "01712345678", // Required — 11 digits, starts with 01
+  secondary_contact: "01812345678", // Optional
+  otp_number: "01712345678", // Optional — OTP delivery number
+  address: "House 10, Road 5, Dhanmondi, Dhaka", // Required — 15–120 chars
+  city_id: 1, // Required
+  zone_id: 1, // Required
+  area_id: 37, // Required
 });
+
+// Store requires Pathao approval (~1 hour) before it can be used
+console.log(store.data.store_name);
 ```
 
 #### Get Stores
 
 ```typescript
-const stores = await pathao.getStores();
-console.log('Available stores:', stores.data.data);
+const stores = await pathao.getStores(); // first page
+const stores = await pathao.getStores(2); // specific page
+
+// Paginated response
+stores.data.data.forEach((s) => {
+  console.log(s.store_id, s.store_name, s.is_active);
+});
+
+// Auto-fetch all pages
+const allStores = await pathao.getStoresAll();
 ```
 
 ### Price Calculation
 
 ```typescript
 const price = await pathao.calculatePrice({
-  store_id: 123,
+  store_id: 12345,
   item_type: ItemType.PARCEL,
-  item_weight: 1.0,
   delivery_type: DeliveryType.NORMAL,
+  item_weight: 0.5,
   recipient_city: 1,
-  recipient_zone: 1
+  recipient_zone: 1,
 });
 
-console.log('Price:', price.data.price);
-console.log('Final price:', price.data.final_price);
-console.log('COD percentage:', price.data.cod_percentage);
+console.log(price.data.price); // base price
+console.log(price.data.discount);
+console.log(price.data.final_price); // price to display to customer
+console.log(price.data.cod_enabled); // 0 | 1
+console.log(price.data.cod_percentage); // e.g. 0.01
 ```
 
 ### Location Services
 
-#### Get Cities
-
 ```typescript
+// Cities
 const cities = await pathao.getCities();
-console.log('Available cities:', cities.data);
-```
+// [{ city_id: 1, city_name: "Dhaka" }, ...]
 
-#### Get Areas
+// Zones within a city
+const zones = await pathao.getZones(1);
+// [{ zone_id: 298, zone_name: "60 feet" }, ...]
 
-```typescript
-const areas = await pathao.getAreas();
-console.log('Available areas:', areas.data);
+// Areas within a zone
+const areas = await pathao.getAreas(298);
+// [{ area_id: 37, area_name: "Bonolota", home_delivery_available: true, pickup_available: true }, ...]
 ```
 
 ### Validation Helpers
 
-The SDK includes built-in validation helpers:
+All helpers are static and can be used before constructing the SDK:
 
 ```typescript
-import { PathaoApiService } from 'pathao-merchant-sdk';
+import { PathaoApiService } from "pathao-merchant-sdk";
 
-// Validate phone number
-const isValidPhone = PathaoApiService.validatePhoneNumber('01712345678'); // true
-
-// Format phone number
-const formattedPhone = PathaoApiService.formatPhoneNumber('01712345678'); // '01712345678'
-
-// Validate address
-const isValidAddress = PathaoApiService.validateAddress('123 Main Street'); // true
-
-// Validate weight
-const isValidWeight = PathaoApiService.validateWeight(1.0); // true
-
-// Validate recipient name
-const isValidName = PathaoApiService.validateRecipientName('John Doe'); // true
+PathaoApiService.validatePhoneNumber("01712345678"); // true  — 11 digits, starts with 01
+PathaoApiService.validateContactNumber("01712345678"); // true  — same rules
+PathaoApiService.validateAddress("House 10, Road 5, Dhanmondi, Dhaka"); // true — 10–220 chars
+PathaoApiService.validateStoreAddress("House 10, Road 5, Dhanmondi"); // true — 15–120 chars
+PathaoApiService.validateWeight(0.5); // true  — 0.5–10 kg
+PathaoApiService.validateRecipientName("John Doe"); // true  — 3–100 chars
+PathaoApiService.validateStoreName("My Store"); // true  — 3–50 chars
 ```
 
-## Enums
-
-### DeliveryType
-
-```typescript
-enum DeliveryType {
-  NORMAL = 48,    // Normal delivery
-  ON_DEMAND = 12  // On-demand delivery
-}
-```
-
-### ItemType
-
-```typescript
-enum ItemType {
-  DOCUMENT = 1,   // Document
-  PARCEL = 2      // Parcel
-}
-```
+---
 
 ## Error Handling
 
-The SDK provides comprehensive error handling through the `PathaoApiError` class, which extends Error with additional properties for detailed error information:
+All API errors are thrown as `PathaoApiError`:
 
 ```typescript
-import { PathaoApiService, PathaoApiError } from 'pathao-merchant-sdk';
-
-const pathao = new PathaoApiService({
-  clientId: process.env.PATHAO_CLIENT_ID,
-  clientSecret: process.env.PATHAO_CLIENT_SECRET,
-  username: process.env.PATHAO_USERNAME,
-  password: process.env.PATHAO_PASSWORD
-});
+import { PathaoApiService, PathaoApiError } from "pathao-merchant-sdk";
 
 try {
   const order = await pathao.createOrder(orderData);
-  console.log('Order created:', order.data.consignment_id);
-} catch (error) {
-  // Check if it's a PathaoApiError (structured error from Pathao API)
-  if (error instanceof PathaoApiError) {
-    console.error('Pathao API Error:', {
-      status: error.status,        // HTTP status code
-      code: error.code,            // Pathao error code
-      type: error.type,            // Error type (e.g., 'ValidationException')
-      message: error.message,      // Error message
-      errors: error.errors,        // Field-level errors
-      validation: error.validation // Validation errors
-    });
-  } else {
-    console.error('Unexpected error:', error.message);
+} catch (err) {
+  if (err instanceof PathaoApiError) {
+    console.error("HTTP status:", err.status); // e.g. 422
+    console.error("Pathao code:", err.code); // Pathao internal error code
+    console.error("Type:", err.type); // e.g. "ValidationException"
+    console.error("Message:", err.message);
+    console.error("Field errors:", err.errors); // { field: "message" }
+    console.error("Validation:", err.validation);
   }
 }
 ```
 
-### Error Properties
+### Common error scenarios
 
-- **status**: HTTP status code (e.g., 400, 401, 422)
-- **code**: Pathao API error code for programmatic handling
-- **type**: Error type string (e.g., 'ValidationException', 'AuthenticationException')
-- **errors**: Object with field-level error messages
-- **validation**: Object with validation error messages
-- **message**: Human-readable error message
+| Status | Cause                                                        |
+| ------ | ------------------------------------------------------------ |
+| 400    | Bad request / missing required fields                        |
+| 401    | Invalid or expired credentials                               |
+| 422    | Validation failure — check `err.errors` for field details    |
+| 429    | Rate limited — SDK retries automatically after `Retry-After` |
+| 503    | Circuit breaker open — too many consecutive failures         |
 
-### Configuration Validation
-
-Configuration validation is deferred until the first API call to allow gradual setup:
-
-```typescript
-// This won't throw immediately
-const pathao = new PathaoApiService({});
-
-// This will throw PathaoApiError if credentials are missing
-try {
-  await pathao.getStores();
-} catch (error) {
-  if (error instanceof PathaoApiError) {
-    console.error('Configuration error:', error.validation);
-  }
-}
-```
+---
 
 ## Webhooks
 
-The `pathao-merchant-sdk/webhooks` sub-module handles inbound Pathao webhook events. It has **zero extra runtime dependencies** — only Node.js built-ins (`crypto`, `events`).
+The webhooks module is a **separate entry point** with zero runtime dependencies (Node.js built-ins only).
 
-> **Note:** Pathao has no official webhook documentation. This implementation is based on reverse-engineering the [`pathao-courier`](https://www.npmjs.com/package/pathao-courier) package. The signature scheme is plain shared-secret equality (no HMAC) via constant-time comparison.
+### How Pathao webhooks work
 
-### Installation
+1. Pathao sends a POST request with a JSON payload to your URL.
+2. The `X-PATHAO-Signature` header contains your configured webhook secret verbatim.
+3. Your endpoint must respond within 10 seconds with an `X-Pathao-Merchant-Webhook-Integration-Secret` header whose value equals your webhook secret.
+4. The HTTP status code should be 2xx.
 
-The webhooks module is a separate entry point. Import it explicitly:
+### Setup requirements
+
+- Your URL must be publicly reachable over HTTPS with a valid SSL certificate.
+- Configure your webhook URL and note the secret from the [Pathao Merchant Dashboard](https://merchant.pathao.com/developer).
+- Store the secret in an environment variable (e.g. `PATHAO_WEBHOOK_SECRET`).
+
+### Import
 
 ```typescript
+// ESM / TypeScript
 import {
   PathaoWebhookHandler,
-  constructEvent,
-  verifySignature,
   PathaoWebhookEvent,
-} from 'pathao-merchant-sdk/webhooks';
-```
+  constructEvent,
+  PathaoWebhookError,
+} from "pathao-merchant-sdk/webhooks";
 
-```javascript
 // CommonJS
-const { PathaoWebhookHandler } = require('pathao-merchant-sdk/webhooks');
+const { PathaoWebhookHandler } = require("pathao-merchant-sdk/webhooks");
 ```
 
-### Quick verification
+### Express integration
 
 ```typescript
-import { verifySignature } from 'pathao-merchant-sdk/webhooks';
+import express from "express";
+import {
+  PathaoWebhookHandler,
+  PathaoWebhookEvent,
+} from "pathao-merchant-sdk/webhooks";
 
-const isValid = verifySignature(
-  req.headers['x-pathao-signature'],
-  process.env.PATHAO_WEBHOOK_SECRET!,
+const app = express();
+const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
+
+handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => {
+  console.log(
+    "Delivered:",
+    payload.consignment_id,
+    "Collected:",
+    payload.collected_amount,
+  );
+});
+
+handler.on(PathaoWebhookEvent.ORDER_PAID, (payload) => {
+  console.log("Invoice:", payload.invoice_id);
+});
+
+handler.on("error", (err) => {
+  console.error("Webhook error:", err.message);
+});
+
+app.post(
+  "/webhooks/pathao",
+  express.json(),
+  handler.expressMiddleware(),
+  (req, res) => {
+    // expressMiddleware() sets the required secret header automatically.
+    // It also handles the handshake event internally (returns 202).
+    // For all other events the payload is on req.pathaoWebhook.
+    res.sendStatus(200);
+  },
 );
 ```
 
-### Verify + parse in one call
+### Framework-agnostic middleware
 
 ```typescript
-import { constructEvent, PathaoWebhookError } from 'pathao-merchant-sdk/webhooks';
+const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
+const middleware = handler.middleware();
 
-app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+// In any async handler (Fastify, Hono, plain http, etc.)
+const instructions = await middleware(rawBody);
+
+for (const [key, value] of Object.entries(instructions.headers)) {
+  reply.header(key, value); // always set — the secret header is required for every response
+}
+
+if (instructions.error) {
+  return reply.status(400).send({ error: instructions.error.message });
+}
+
+if (instructions.payload?.event === "webhook_integration") {
+  return reply.status(202).send();
+}
+
+// instructions.payload is typed as PathaoWebhookPayload
+console.log(instructions.payload?.event);
+return reply.status(200).send({ received: true });
+```
+
+### Parse and verify manually
+
+```typescript
+import {
+  constructEvent,
+  PathaoWebhookError,
+} from "pathao-merchant-sdk/webhooks";
+
+app.post("/webhooks/pathao", express.json(), (req, res) => {
+  res.setHeader(
+    "X-Pathao-Merchant-Webhook-Integration-Secret",
+    process.env.PATHAO_WEBHOOK_SECRET!,
+  );
   try {
-    const payload = constructEvent(
-      req.body,                               // raw Buffer — do NOT pre-parse
-      req.headers,
-      process.env.PATHAO_WEBHOOK_SECRET!,
-    );
-    console.log('Event:', payload.event, payload.data);
+    const payload = constructEvent(req.body);
+    console.log("Event:", payload.event);
     res.sendStatus(200);
   } catch (err) {
     if (err instanceof PathaoWebhookError) {
@@ -468,240 +507,127 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
 });
 ```
 
-### Express middleware
-
-```typescript
-import { PathaoWebhookHandler, PathaoWebhookEvent } from 'pathao-merchant-sdk/webhooks';
-
-const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
-
-// Listen for specific events (fully typed payload)
-handler.on(PathaoWebhookEvent.ORDER_DELIVERED, (payload) => {
-  console.log('Delivered:', payload.consignment_id);
-});
-
-handler.on(PathaoWebhookEvent.ORDER_CANCELLED, (payload) => {
-  console.log('Cancelled:', payload.consignment_id, payload.reason);
-});
-
-// Catch all events
-handler.on('webhook', (payload) => {
-  console.log('Any event:', payload.event, payload.data);
-});
-
-// Handle errors (invalid signature, bad JSON, etc.)
-handler.on('error', (err) => {
-  console.error('Webhook error:', err.message);
-});
-
-// Mount — must use express.raw() BEFORE this middleware
-app.post(
-  '/webhook/pathao',
-  express.raw({ type: 'application/json' }),
-  handler.expressMiddleware(),
-);
-
-// Access the parsed payload downstream
-app.post('/webhook/pathao', express.raw({ type: 'application/json' }), handler.expressMiddleware(), (req, res) => {
-  console.log(req.pathaoWebhook); // typed PathaoWebhookPayload
-  res.sendStatus(200);
-});
-```
-
-### Generic (non-Express) middleware
-
-```typescript
-const handler = new PathaoWebhookHandler(process.env.PATHAO_WEBHOOK_SECRET!);
-const middleware = handler.middleware();
-
-// Returns { payload, error } — never rejects
-const { payload, error } = await middleware(rawBody, headers);
-if (error) {
-  console.error('Bad webhook:', error.message);
-} else {
-  console.log('Event:', payload!.event);
-}
-```
-
 ### Supported event types
 
-| Event constant | Event string |
-|---|---|
-| `ORDER_CREATED` | `order.created` |
-| `ORDER_ACCEPTED` | `order.accepted` |
-| `ORDER_PICKUP_REQUESTED` | `order.pickup_requested` |
-| `ORDER_PICKED` | `order.picked` |
-| `ORDER_IN_TRANSIT` | `order.in_transit` |
-| `ORDER_DELIVERED` | `order.delivered` |
-| `ORDER_CANCELLED` | `order.cancelled` |
-| `ORDER_HOLD` | `order.hold` |
-| `ORDER_RETURN_REQUESTED` | `order.return_requested` |
-| `ORDER_RETURN_PICKUP_REQUESTED` | `order.return_pickup_requested` |
-| `ORDER_RETURN_PICKED` | `order.return_picked` |
-| `ORDER_RETURN_IN_TRANSIT` | `order.return_in_transit` |
-| `ORDER_PARTIAL_DELIVERED` | `order.partial_delivered` |
-| `ORDER_DELIVERY_FAILED` | `order.delivery_failed` |
-| `ORDER_ON_HOLD` | `order.on_hold` |
-| `ORDER_PAID` | `order.paid` |
-| `ORDER_PAID_RETURN` | `order.paid_return` |
-| `ORDER_RETURNED` | `order.returned` |
-| `ORDER_EXCHANGED` | `order.exchanged` |
-| `STORE_CREATED` | `store.created` |
-| `STORE_UPDATED` | `store.updated` |
+All 24 event types from the Pathao dashboard:
 
-### TypeScript types
+| Enum constant                     | Event string                      | Key payload fields                                                           |
+| --------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| `ORDER_CREATED`                   | `order.created`                   | `consignment_id`, `store_id`, `delivery_fee`                                 |
+| `ORDER_UPDATED`                   | `order.updated`                   | `consignment_id`, `store_id`, `delivery_fee`                                 |
+| `ORDER_PICKUP_REQUESTED`          | `order.pickup-requested`          | `consignment_id`, `store_id`, `delivery_fee`                                 |
+| `ORDER_ASSIGNED_FOR_PICKUP`       | `order.assigned-for-pickup`       | `consignment_id`, `store_id`                                                 |
+| `ORDER_PICKED`                    | `order.picked`                    | `consignment_id`, `store_id`                                                 |
+| `ORDER_PICKUP_FAILED`             | `order.pickup-failed`             | `consignment_id`, `store_id`                                                 |
+| `ORDER_PICKUP_CANCELLED`          | `order.pickup-cancelled`          | `consignment_id`, `store_id`                                                 |
+| `ORDER_AT_THE_SORTING_HUB`        | `order.at-the-sorting-hub`        | `consignment_id`, `store_id`                                                 |
+| `ORDER_IN_TRANSIT`                | `order.in-transit`                | `consignment_id`, `store_id`                                                 |
+| `ORDER_RECEIVED_AT_LAST_MILE_HUB` | `order.received-at-last-mile-hub` | `consignment_id`, `store_id`                                                 |
+| `ORDER_ASSIGNED_FOR_DELIVERY`     | `order.assigned-for-delivery`     | `consignment_id`, `store_id`                                                 |
+| `ORDER_DELIVERED`                 | `order.delivered`                 | `consignment_id`, `store_id`, `collected_amount`                             |
+| `ORDER_PARTIAL_DELIVERY`          | `order.partial-delivery`          | `consignment_id`, `collected_amount`, `reason?`                              |
+| `ORDER_RETURNED`                  | `order.returned`                  | `consignment_id`, `reason?`                                                  |
+| `ORDER_DELIVERY_FAILED`           | `order.delivery-failed`           | `consignment_id`, `reason?`                                                  |
+| `ORDER_ON_HOLD`                   | `order.on-hold`                   | `consignment_id`, `reason?`                                                  |
+| `ORDER_PAID`                      | `order.paid`                      | `consignment_id`, `invoice_id`                                               |
+| `ORDER_PAID_RETURN`               | `order.paid-return`               | `consignment_id`, `collected_amount`, `reason?`                              |
+| `ORDER_EXCHANGED`                 | `order.exchanged`                 | `consignment_id`, `collected_amount`, `reason?`                              |
+| `ORDER_RETURN_ID_CREATED`         | `order.return-id-created`         | `consignment_id`, `return_consignment_id`, `return_type`, `collected_amount` |
+| `ORDER_RETURN_IN_TRANSIT`         | `order.return-in-transit`         | `consignment_id`, `return_consignment_id`, `return_type`, `collected_amount` |
+| `ORDER_RETURNED_TO_MERCHANT`      | `order.returned-to-merchant`      | `consignment_id`, `return_consignment_id`, `return_type`, `collected_amount` |
+| `STORE_CREATED`                   | `store.created`                   | `store_id`, `store_name`, `store_address`, `is_active`                       |
+| `STORE_UPDATED`                   | `store.updated`                   | `store_id`, `store_name`, `store_address`, `is_active`                       |
 
-All event payloads are fully typed. Access them via `WebhookEventPayloadMap`:
+All payloads also include `updated_at` (MySQL datetime) and `timestamp` (ISO 8601).
+
+---
+
+## TypeScript Types
 
 ```typescript
 import type {
+  PathaoConfig,
+  PathaoOrderRequest,
+  PathaoOrderResponse,
+  PathaoStoreRequest,
+  PathaoStore,
+  PathaoPriceRequest,
+  PathaoPriceResponse,
+  PathaoOrderStatusResponse,
+  DeliveryType,
+  ItemType,
+} from "pathao-merchant-sdk";
+
+import type {
+  PathaoWebhookPayload,
   WebhookEventPayloadMap,
-  PathaoWebhookEvent,
   OrderDeliveredPayload,
-} from 'pathao-merchant-sdk/webhooks';
+  OrderReturnIdCreatedPayload,
+  PathaoWebhookEvent,
+} from "pathao-merchant-sdk/webhooks";
 
-// Explicit payload type
-const handler = (payload: OrderDeliveredPayload) => {
-  console.log(payload.consignment_id, payload.amount_to_collect);
-};
-
-// Via mapped type
-type DeliveredPayload = WebhookEventPayloadMap[PathaoWebhookEvent.ORDER_DELIVERED];
+// Access a specific payload type via the map
+type PaidPayload = WebhookEventPayloadMap[PathaoWebhookEvent.ORDER_PAID];
 ```
 
-## Authentication
-
-The SDK automatically handles OAuth2 authentication and token refresh. You only need to provide your credentials once during initialization:
-
-```typescript
-const pathao = new PathaoApiService({
-  clientId: process.env.PATHAO_CLIENT_ID,
-  clientSecret: process.env.PATHAO_CLIENT_SECRET,
-  username: process.env.PATHAO_USERNAME,
-  password: process.env.PATHAO_PASSWORD
-});
-```
-
-## Examples
-
-### Complete Order Flow
-
-```typescript
-import { PathaoApiService, DeliveryType, ItemType } from 'pathao-merchant-sdk';
-
-async function createDeliveryOrder() {
-  const pathao = new PathaoApiService({
-    clientId: process.env.PATHAO_CLIENT_ID!,
-    clientSecret: process.env.PATHAO_CLIENT_SECRET!,
-    username: process.env.PATHAO_USERNAME!,
-    password: process.env.PATHAO_PASSWORD!
-  });
-
-  try {
-    // 1. Calculate price first
-    const price = await pathao.calculatePrice({
-      store_id: 123,
-      item_type: ItemType.PARCEL,
-      item_weight: 1.0,
-      delivery_type: DeliveryType.NORMAL,
-      recipient_city: 1,
-      recipient_zone: 1,
-      recipient_area: 1
-    });
-
-    console.log('Estimated cost:', price.data.total_charge);
-
-    // 2. Create the order
-    const order = await pathao.createOrder({
-      store_id: 123,
-      merchant_order_id: `ORDER-${Date.now()}`,
-      recipient_name: 'John Doe',
-      recipient_phone: '01712345678',
-      recipient_address: '123 Main Street, Dhanmondi, Dhaka',
-      delivery_type: DeliveryType.NORMAL,
-      item_type: ItemType.PARCEL,
-      item_quantity: 1,
-      item_weight: 1.0,
-      amount_to_collect: 500
-    });
-
-    console.log('Order created successfully:', {
-      consignmentId: order.data.consignment_id,
-      invoiceId: order.data.invoice_id,
-      status: order.data.status
-    });
-
-    // 3. Track the order
-    const status = await pathao.getOrderStatus(order.data.consignment_id);
-    console.log('Current status:', status.data.status);
-
-  } catch (error) {
-    console.error('Delivery order failed:', error.message);
-  }
-}
-```
-
-## Official Documentation
-
-This SDK is based on the official Pathao Courier Merchant API documentation. For complete API reference and details:
-
-- **[Official API Documentation](./docs/official-pathao-api-documentation.md)** - Complete Pathao API guide
-- **[API Reference](./docs/pathao-api-reference.txt)** - Original API reference document
-- **[Pathao Merchant Portal](https://merchant.pathao.com)** - Official merchant dashboard
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome. Please open an issue first for significant changes.
+
+1. Fork the repo
+2. Create a feature branch
+3. Run `pnpm test` and `pnpm run type-check` before submitting
 
 ## Development
 
-- Build: `npm run build`
-- Tests: `npm test`
-- Lint: `npm run lint`
-- Type check: `npm run type-check`
+```bash
+pnpm install
+pnpm run build      # compile CJS + ESM + .d.ts
+pnpm test           # run Jest test suite
+pnpm run type-check # tsc --noEmit
+pnpm run lint       # ESLint
+```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
 ## Support
 
-For support, please open an issue on GitHub or contact me at sifatjasim@gmail.com.
+Open an issue on [GitHub](https://github.com/sifat07/pathao-merchant-sdk/issues).
 
-## Disclaimer
-
-This is an **unofficial** SDK and is not affiliated with or endorsed by Pathao. Use at your own risk. The maintainers are not responsible for any issues that may arise from using this package.
+---
 
 ## Changelog
 
+### 2.2.0 — 2026-04-15
+
+- Added 3 missing webhook event types from official dashboard docs: `order.return-id-created`, `order.return-in-transit`, `order.returned-to-merchant` with full `ReturnOrderWebhookPayload` type
+- Fixed tsconfig: added `node` and `jest` to `types` so `Buffer`/`EventEmitter` resolve correctly
+- Fixed webhook header handling and improved event processing robustness
+
 ### 2.1.0
-- Added webhook support via `pathao-merchant-sdk/webhooks` sub-path
-- `PathaoWebhookHandler` — EventEmitter with typed `on()` overloads for all 21 event types
-- `constructEvent()` and `verifySignature()` standalone helpers
+
+- Added `pathao-merchant-sdk/webhooks` sub-path entry point
+- `PathaoWebhookHandler` — EventEmitter with typed `on()` overloads for all event types
+- `constructEvent()` standalone helper
 - Express middleware and generic async middleware
-- Constant-time signature comparison via `crypto.timingSafeEqual`
-- Fixed case-insensitive header lookup for `X-PATHAO-Signature`
 
 ### 2.0.x
-- Added retry logic: 429 reads `Retry-After`, 5xx exponential backoff (max 2 retries)
-- Added circuit breaker: throws `PathaoApiError` (code 503) when open
-- Added `sandbox()` and `production()` named constructors
-- Deferred config validation to first API call
-- HTTPS-only enforcement in `validateConfiguration()`
-- Auth token redacted as `Bearer [REDACTED]` in debug logs
-- Added `User-Agent: pathao-merchant-sdk node/<version>` header
-- `getStores()` accepts optional `page` parameter
-- `validateContactNumber` requires `startsWith('01')`
+
+- Factory methods: `fromEnv()`, `fromConfig()`, `sandbox()`, `production()`
+- Debug logging (`debug` option) — `Authorization` header redacted
+- Configurable circuit breaker (throws `PathaoApiError` code 503 when open)
+- Retry logic: 429 reads `Retry-After`, 5xx exponential backoff (max 2 retries)
+- Deferred config validation — constructor never throws
+- HTTPS enforcement in `validateConfiguration()`
+- `User-Agent: pathao-merchant-sdk node/<version>` header
+- `getStores(page?)` pagination parameter
 - `is_active` and `cod_enabled` typed as `0 | 1`
-- Fixed shell injection in `scripts/release.js` (replaced `execSync` with `spawnSync`)
-- CI/CD: replaced deprecated actions, added version-existence check before publish
+- Fixed shell injection in `scripts/release.js`
 
 ### 1.0.0
-- Initial release
-- Complete Pathao API integration
-- TypeScript support
-- Automatic authentication
-- Order management
-- Store management
-- Price calculation
-- Location services
+
+- Initial release — order management, store management, price calculation, location services, automatic OAuth2

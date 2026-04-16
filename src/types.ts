@@ -1,6 +1,6 @@
 /**
  * Pathao Courier API Types
- * 
+ *
  * Official API Details:
  * - Authentication: OAuth2 with client_id, client_secret, username, password
  * - All endpoints use /aladdin/api/v1/ prefix
@@ -19,31 +19,31 @@ export interface PathaoAuthResponse {
 // Official Pathao Order Creation Request
 export interface PathaoOrderRequest {
   store_id: number;
-  merchant_order_id?: string;          // Optional - Your order tracking ID
-  recipient_name: string;              // Required - 3-100 characters
-  recipient_phone: string;             // Required - 11 characters
-  recipient_secondary_phone?: string;  // Optional - 11 characters
-  recipient_address: string;           // Required - 10-220 characters
-  recipient_city?: number;             // Optional - Auto-detected if not provided
-  recipient_zone?: number;             // Optional - Auto-detected if not provided
-  recipient_area?: number;             // Optional - Auto-detected if not provided
-  delivery_type: number;               // Required - 48 (Normal), 12 (On Demand)
-  item_type: number;                   // Required - 1 (Document), 2 (Parcel)
-  special_instruction?: string;        // Optional
-  item_quantity: number;               // Required
-  item_weight: number;                 // Required - 0.5-10 kg
-  item_description?: string;           // Optional
-  amount_to_collect: number;           // Required - COD amount (0 for non-COD)
+  merchant_order_id?: string; // Optional - Your order tracking ID
+  recipient_name: string; // Required - 3-100 characters
+  recipient_phone: string; // Required - 11 characters
+  recipient_secondary_phone?: string; // Optional - 11 characters
+  recipient_address: string; // Required - 10-220 characters
+  recipient_city?: number; // Optional - Auto-detected if not provided
+  recipient_zone?: number; // Optional - Auto-detected if not provided
+  recipient_area?: number; // Optional - Auto-detected if not provided
+  delivery_type: DeliveryType; // Required - DeliveryType.NORMAL (48) or DeliveryType.ON_DEMAND (12)
+  item_type: ItemType; // Required - ItemType.DOCUMENT (1) or ItemType.PARCEL (2)
+  special_instruction?: string; // Optional
+  item_quantity: number; // Required
+  item_weight: number; // Required - 0.5-10 kg
+  item_description?: string; // Optional
+  amount_to_collect: number; // Required - COD amount (0 for non-COD)
 }
 
 // Official Pathao Store Creation Request
 export interface PathaoStoreRequest {
-  name: string;                        // 3-50 characters
-  contact_name: string;                // 3-50 characters
-  contact_number: string;              // 11 characters
-  secondary_contact?: string;          // Optional - 11 characters
-  otp_number?: string;                 // Optional - OTP for orders
-  address: string;                     // 15-120 characters
+  name: string; // 3-50 characters
+  contact_name: string; // 3-50 characters
+  contact_number: string; // 11 characters
+  secondary_contact?: string; // Optional - 11 characters
+  otp_number?: string; // Optional - OTP for orders
+  address: string; // 15-120 characters
   city_id: number;
   zone_id: number;
   area_id: number;
@@ -56,7 +56,7 @@ export interface PathaoOrderResponse {
   message: string;
   data: {
     consignment_id: string;
-    merchant_order_id: string;
+    merchant_order_id?: string; // Only present if provided in the request
     order_status: string;
     delivery_fee: number;
   };
@@ -68,7 +68,7 @@ export interface PathaoStoreCreateResponse {
   code: number;
   message: string;
   data: {
-    store_name: string;  // Only store_name returned on creation
+    store_name: string; // Only store_name returned on creation
   };
 }
 
@@ -77,7 +77,7 @@ export interface PathaoStore {
   store_id: number;
   store_name: string;
   store_address: string;
-  is_active: 0 | 1;                 // 1 for active, 0 for deactivated
+  is_active: 0 | 1; // 1 for active, 0 for deactivated
   city_id: number;
   zone_id: number;
   hub_id: number;
@@ -108,9 +108,9 @@ export interface PathaoStoreListResponse {
 // Official Pathao Price Calculation Request
 export interface PathaoPriceRequest {
   store_id: number;
-  item_type: number;
+  item_type: ItemType;
   item_weight: number;
-  delivery_type: number;
+  delivery_type: DeliveryType;
   recipient_city: number;
   recipient_zone: number;
 }
@@ -121,14 +121,14 @@ export interface PathaoPriceResponse {
   code: number;
   message: string;
   data: {
-    price: number;                     // Calculated price for given item
-    discount: number;                  // Discount for the given item
-    promo_discount: number;           // Promo discount for the given item
-    plan_id: number;                  // Price plan id for the given item
-    cod_enabled: 0 | 1;              // 1 if COD enabled, 0 if not
-    cod_percentage: number;           // Cash on delivery percentage
-    additional_charge: number;        // If there is any additional charge
-    final_price: number;              // Your final price for the given item
+    price: number; // Calculated price for given item
+    discount: number; // Discount for the given item
+    promo_discount: number; // Promo discount for the given item
+    plan_id: number; // Price plan id for the given item
+    cod_enabled: 0 | 1; // 1 if COD enabled, 0 if not
+    cod_percentage: number; // Cash on delivery percentage
+    additional_charge: number; // If there is any additional charge
+    final_price: number; // Your final price for the given item
   };
 }
 
@@ -152,10 +152,10 @@ export interface PathaoOrderStatusResponse {
   message: string;
   data: {
     consignment_id: string;
-    merchant_order_id: string;
+    merchant_order_id?: string; // Only present if provided at order creation
     order_status: string;
     order_status_slug: string;
-    updated_at: string;
+    updated_at: string; // Format: "YYYY-MM-DD HH:MM:SS"
     invoice_id: string | null;
   };
 }
@@ -195,7 +195,7 @@ export interface PathaoConfig {
   username: string;
   password: string;
   baseURL?: string;
-  timeout?: number;  // Optional - defaults to 30000 if not provided
+  timeout?: number; // Optional - defaults to 30000 if not provided
 }
 
 // Error response from Pathao API
@@ -216,13 +216,13 @@ export enum DeliveryType {
   /** Standard delivery (API value: 48) */
   NORMAL = 48,
   /** Same-day on-demand delivery (API value: 12) */
-  ON_DEMAND = 12
+  ON_DEMAND = 12,
 }
 
 // Item types enum
 export enum ItemType {
   DOCUMENT = 1,
-  PARCEL = 2
+  PARCEL = 2,
 }
 
 // Official Pathao Bulk Order Response
@@ -232,4 +232,3 @@ export interface PathaoBulkOrderResponse {
   code: number;
   data: boolean;
 }
-

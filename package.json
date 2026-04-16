@@ -33,13 +33,7 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "type-check": "tsc --noEmit",
-    "prepublishOnly": "pnpm run build && pnpm run test",
-    "release": "node scripts/release.js",
-    "release:dry-run": "node scripts/release.js --dry-run",
-    "changelog": "node scripts/release.js --changelog-only",
-    "version:patch": "npm version patch --no-git-tag-version",
-    "version:minor": "npm version minor --no-git-tag-version",
-    "version:major": "npm version major --no-git-tag-version"
+    "prepublishOnly": "pnpm run build && pnpm run test"
   },
   "keywords": [
     "pathao",

@@ -1,9 +1,3 @@
-## [1.3.0] - 2025-12-04
-
-### ✨ New Features
-- b4fa591 feat: enhance Pathao API SDK with environment variable support and improved error handling
-
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -13,95 +7,158 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [2.2.1] - 2026-04-16
+
+### Added
+
+- `PATHAO_STORE_ID` env var documented in `.env.example`
+- `examples/tsconfig.json` — scoped tsconfig for the examples directory so `process` and Node types resolve correctly in IDE
+- Comprehensive test suite rewrite: 67 tests covering all code paths including config validation, factory methods, all static validation helpers, pagination, URL encoding, retry backoff, circuit breaker, and debug token redaction
+
+### Changed
+
+- `.env` renamed to `.env.example` with placeholder credentials (proper convention for committed template files)
+- Example files updated: package name corrected from `@sifat07/pathao-merchant-sdk` to `pathao-merchant-sdk`
+- `examples/test-sandbox.ts`: fixed import path and updated doc URL to `merchant.pathao.com/courier/developer-api`
+- Debug log comment in `advanced-usage.ts` corrected to show `Bearer [REDACTED]` (matches actual SDK behavior)
+
+### Removed
+
+- `IMPROVEMENTS.md` — internal dev notes, not relevant to consumers
+- `RELEASE.md` / `RELEASE_NOTES.md` — redundant with `CHANGELOG.md`
+- `SETUP.md` — personal repo-setup scratch file
+- `env.example` — duplicate of `.env.example`
+- `docs/pathao-api-reference.txt` — superseded by `docs/official-pathao-api-documentation.md`
+- `examples/env-example.js` — superseded by `.env.example`
+- `coverage/` — generated artifact (already gitignored)
+
+---
+
+## [2.2.0] - 2026-04-16
+
+### Added
+
+- 3 new webhook event types from official Pathao dashboard documentation:
+  - `order.return-id-created` (`ORDER_RETURN_ID_CREATED`)
+  - `order.return-in-transit` (`ORDER_RETURN_IN_TRANSIT`)
+  - `order.returned-to-merchant` (`ORDER_RETURNED_TO_MERCHANT`)
+- `ReturnOrderWebhookPayload` base interface with `return_consignment_id`, `return_type`, `collected_amount`, `reason?`
+
+### Fixed
+
+- `tsconfig.json`: added `node` and `jest` to `types` array — resolves `Buffer` and `EventEmitter` type errors
+- Webhook secret header is now always set on every response (not just handshake)
+
+### Changed
+
+- Webhook documentation updated to reflect official Pathao dashboard specs
+- Sandbox credentials restored in `docs/` for developer convenience (publicly provided by Pathao)
+
+---
+
+## [2.1.0] - 2026-03-10
+
+### Added
+
+- `pathao-merchant-sdk/webhooks` sub-path entry point (zero extra runtime dependencies)
+- `PathaoWebhookHandler` — EventEmitter with fully typed `on()` and `once()` overloads for all event types
+- `constructEvent(rawBody)` — parse and validate a webhook payload
+- Express middleware via `handler.expressMiddleware()`
+- Framework-agnostic middleware via `handler.middleware()` — never rejects, returns `WebhookResponseInstructions`
+- `PathaoWebhookError` error class
+- Constant-time secret comparison via `crypto.timingSafeEqual`
+- Full TypeScript payload types for all 21 event types with `WebhookEventPayloadMap`
+
+---
+
 ## [2.0.2] - 2025-12-08
 
 ### Added
-- **Factory methods**: `PathaoApiService.fromEnv()` and `PathaoApiService.fromConfig()` for convenient initialization patterns
-- **Debug logging**: Optional `debug` flag in constructor options to log all HTTP requests and responses
-- **Configurable circuit breaker**: `circuitBreaker` option to customize failure threshold and timeout
-- **Comprehensive error handling examples** in README with `PathaoApiError` usage patterns
-- **Advanced options documentation** for factory methods and configuration
+
+- Factory methods: `PathaoApiService.fromEnv()`, `PathaoApiService.fromConfig()`, `PathaoApiService.sandbox()`, `PathaoApiService.production()`
+- `debug` option — logs all HTTP requests and responses; `Authorization` header redacted as `Bearer [REDACTED]`
+- Configurable circuit breaker via `circuitBreaker: { threshold, timeout }` option
 
 ### Changed
-- **Breaking**: Deferred configuration validation to first API call instead of constructor throw. SDK now initializes successfully even without credentials, and throws `PathaoApiError` when attempting an API call with missing config.
-- Removed config duplication in constructor (axios create config now uses resolved config values).
-- Constructor now accepts optional `options` parameter: `new PathaoApiService(config, { debug?, circuitBreaker? })`
-- Constructor no longer throws upfront, allowing graceful error handling at first API usage.
+
+- **Breaking**: Configuration validation deferred to first API call — constructor no longer throws
+- Constructor now accepts optional second argument: `new PathaoApiService(config, { debug?, circuitBreaker? })`
 
 ### Fixed
-- `ResolvedPathaoConfig` internal type ensures `timeout` is always a number.
-- Tests updated to reflect deferred validation behavior.
-- Circuit breaker now properly resets on successful requests and maintains configurable thresholds.
 
-### Verified
-- `npm test` passes with 22/22 tests.
-- Build succeeds (CJS/ESM/DTS).
+- `ResolvedPathaoConfig` internal type ensures `timeout` is always a `number`
+- Circuit breaker resets correctly on successful requests
+- `parseInt` NaN + zero guard for `PATHAO_TIMEOUT` env var
+- `encodeURIComponent()` applied to `consignmentId` in URL path
+- Removed `as any` / `as Error` casts — replaced with proper type guards
+- Removed dead `requestQueue` / `processRequestQueue` code
+- Scoped `jest.spyOn` restores only console spies in test setup
+
+---
 
 ## [2.0.1] - 2025-12-05
 
-### Changed
-- Added `PathaoApiError` with structured fields (`status`, `code`, `type`, `errors`, `validation`, `responseData`) and updated all SDK methods to throw it.
+### Added
 
-### Verified
-- `npm test` (jest) passes.
+- `PathaoApiError` class with structured fields: `status`, `code`, `type`, `errors`, `validation`, `responseData`
+- All SDK methods now throw `PathaoApiError` instead of plain `Error`
+
+---
 
 ## [1.2.0] - 2024-12-05
 
+### Added
+
+- `CONTRIBUTING.md` for contributors
+- Reorganized documentation into `docs/` folder
+- ESM `exports` field in `package.json` with `sideEffects: false`
+
 ### Fixed
-- Fixed `PathaoPriceRequest` type - removed incorrect `recipient_area` field
+
+- `PathaoPriceRequest` type — removed incorrect `recipient_area` field
 - Split store response types into `PathaoStoreCreateResponse` and `PathaoStoreListResponse`
-- Updated README examples to match official API response structures
+- README examples updated to match official API response structures
 - Removed deprecated `StoreType` enum references
 
-### Changed
-- Enhanced package.json with ESM exports field and sideEffects flag
-- Improved npm package structure with .npmignore
-- Added CONTRIBUTING.md for contributors
-- Reorganized documentation files into docs/ folder
-
-### Verified
-- All endpoints tested against official Pathao sandbox API
-- Type definitions verified against actual API responses
+---
 
 ## [1.1.0] - 2024-10-01
 
 ### Added
-- Comprehensive CI/CD pipeline and automatic release management
+
+- CI/CD pipeline and automatic release management via GitHub Actions
+
+---
 
 ## [1.0.0] - 2024-10-01
 
 ### Added
-- Initial release of Pathao Merchant API SDK
+
+- Initial release
 - Full TypeScript support with complete type definitions
 - Automatic OAuth2 authentication and token refresh
-- Order management (create, track, status)
-- Store management (create, list stores)
-- Price calculation for delivery charges
-- Location services (cities, zones, areas)
-- Comprehensive error handling
-- Built-in validation helpers
-- Support for both CommonJS and ESM
-- Extensive documentation and examples
-
-### Features
-- 🚀 Full TypeScript Support
-- 🔐 Automatic Authentication
-- 📦 Order Management
-- 🏪 Store Management
-- 💰 Price Calculation
-- 🌍 Location Services
-- ⚡ Built with Axios
-- 🛡️ Error Handling
-- 📚 Well Documented
-
-## [1.0.0] - 2025-01-01
-
-### Added
-- Initial release
-- Complete Pathao API integration
-- TypeScript support
-- Automatic authentication
-- Order management
-- Store management
+- Order management: create single order, bulk orders, track by consignment ID
+- Store management: create store, list stores with pagination, `getStoresAll()` auto-paginator
 - Price calculation
-- Location services
+- Location services: cities, zones, areas
+- `PathaoApiError` for structured error handling
+- Built-in static validation helpers: phone, address, weight, name
+- `User-Agent: pathao-merchant-sdk node/<version>` header
+- Retry logic: 429 reads `Retry-After`; 5xx exponential backoff (max 2 retries)
+- Circuit breaker: throws `PathaoApiError` (code 503) when open
+- HTTPS enforcement in `validateConfiguration()`
+- Support for both CommonJS and ESM module formats
+
+<!-- comparison links -->
+
+[Unreleased]: https://github.com/sifat07/pathao-merchant-sdk/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/sifat07/pathao-merchant-sdk/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/sifat07/pathao-merchant-sdk/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/sifat07/pathao-merchant-sdk/compare/v2.0.2...v2.1.0
+[2.0.2]: https://github.com/sifat07/pathao-merchant-sdk/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/sifat07/pathao-merchant-sdk/compare/v1.2.0...v2.0.1
+[1.2.0]: https://github.com/sifat07/pathao-merchant-sdk/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/sifat07/pathao-merchant-sdk/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/sifat07/pathao-merchant-sdk/releases/tag/v1.0.0

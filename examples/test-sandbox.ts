@@ -3,7 +3,7 @@
  * Tests the SDK against official Pathao sandbox environment
  */
 
-import { DeliveryType, ItemType, PathaoApiService } from './src/index';
+import { DeliveryType, ItemType, PathaoApiService } from '../src/index';
 
 async function testSandboxAPI() {
   console.log('🧪 Testing Pathao SDK against Sandbox API\n');
@@ -11,7 +11,7 @@ async function testSandboxAPI() {
 
   // Initialize with sandbox credentials from environment variables.
   // Pathao's official sandbox credentials are documented at:
-  // https://developers.pathao.com - set them in your .env file.
+  // https://merchant.pathao.com/courier/developer-api - set them in your .env file.
   const pathao = new PathaoApiService({
     baseURL: process.env.PATHAO_BASE_URL || 'https://courier-api-sandbox.pathao.com',
     clientId: process.env.PATHAO_CLIENT_ID || '',

@@ -1,344 +1,166 @@
 #!/usr/bin/env node
 
 /**
- * Automatic Release Script for Pathao Merchant SDK
- * 
- * This script handles:
- * - Semantic versioning based on commit messages
- * - Automatic changelog generation
- * - Release notes creation
- * - Version bumping
+ * Release script for pathao-merchant-sdk
+ *
+ * - Bumps version in package.json based on commit messages since last tag
+ * - Promotes [Unreleased] in CHANGELOG.md to the new version + date
+ * - Creates a git tag
+ *
+ * Flags:
+ *   --dry-run         Print what would happen without modifying any files
+ *   --changelog-only  Update CHANGELOG.md only, skip version bump and git tag
  */
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+"use strict";
 
-// Configuration
-const PACKAGE_JSON_PATH = path.join(__dirname, '..', 'package.json');
-const CHANGELOG_PATH = path.join(__dirname, '..', 'CHANGELOG.md');
-const RELEASE_NOTES_PATH = path.join(__dirname, '..', 'RELEASE_NOTES.md');
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
 
-// Version types and their commit message patterns
-const VERSION_TYPES = {
-  major: {
-    patterns: ['BREAKING CHANGE:', 'BREAKING:', 'major:'],
-    increment: 'major'
-  },
-  minor: {
-    patterns: ['feat:', 'feature:', 'minor:', 'new:'],
-    increment: 'minor'
-  },
-  patch: {
-    patterns: ['fix:', 'bugfix:', 'patch:', 'chore:', 'docs:', 'style:', 'refactor:', 'perf:', 'test:'],
-    increment: 'patch'
-  }
-};
+const ROOT = path.join(__dirname, "..");
+const PACKAGE_JSON_PATH = path.join(ROOT, "package.json");
+const CHANGELOG_PATH = path.join(ROOT, "CHANGELOG.md");
 
-class ReleaseManager {
-  constructor() {
-    this.packageJson = this.loadPackageJson();
-    this.currentVersion = this.packageJson.version;
-  }
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  loadPackageJson() {
-    try {
-      return JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf8'));
-    } catch (error) {
-      console.error('Error loading package.json:', error.message);
-      process.exit(1);
-    }
-  }
-
-  getCommitsSinceLastTag() {
-    try {
-      const lastTag = this.getLastTag();
-      const { spawnSync } = require('child_process');
-      const args = lastTag
-        ? ['log', '--oneline', `${lastTag}..HEAD`]
-        : ['log', '--oneline', 'HEAD'];
-      const result = spawnSync('git', args, { encoding: 'utf8' });
-      if (result.status !== 0) return [];
-      return result.stdout.trim().split('\n').filter(line => line.trim());
-    } catch (error) {
-      console.error('Error getting commits:', error.message);
-      return [];
-    }
-  }
-
-  getLastTag() {
-    try {
-      const tags = execSync('git tag --sort=-version:refname', { encoding: 'utf8' })
-        .trim()
-        .split('\n')
-        .filter(tag => tag.startsWith('v'));
-      return tags[0] || null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  determineVersionType(commits) {
-    let versionType = 'patch'; // Default to patch
-
-    for (const commit of commits) {
-      const message = commit.toLowerCase();
-      
-      // Check for breaking changes
-      if (VERSION_TYPES.major.patterns.some(pattern => message.includes(pattern.toLowerCase()))) {
-        versionType = 'major';
-        break;
-      }
-      
-      // Check for features
-      if (VERSION_TYPES.minor.patterns.some(pattern => message.includes(pattern.toLowerCase()))) {
-        versionType = 'minor';
-      }
-    }
-
-    return versionType;
-  }
-
-  bumpVersion(versionType) {
-    const [major, minor, patch] = this.currentVersion.split('.').map(Number);
-    
-    let newVersion;
-    switch (versionType) {
-      case 'major':
-        newVersion = `${major + 1}.0.0`;
-        break;
-      case 'minor':
-        newVersion = `${major}.${minor + 1}.0`;
-        break;
-      case 'patch':
-        newVersion = `${major}.${minor}.${patch + 1}`;
-        break;
-      default:
-        throw new Error(`Invalid version type: ${versionType}`);
-    }
-
-    return newVersion;
-  }
-
-  categorizeCommits(commits) {
-    const categories = {
-      features: [],
-      fixes: [],
-      breaking: [],
-      chores: [],
-      docs: [],
-      other: []
-    };
-
-    commits.forEach(commit => {
-      const message = commit.toLowerCase();
-      
-      if (message.includes('breaking change:') || message.includes('breaking:')) {
-        categories.breaking.push(commit);
-      } else if (message.includes('feat:') || message.includes('feature:') || message.includes('new:')) {
-        categories.features.push(commit);
-      } else if (message.includes('fix:') || message.includes('bugfix:')) {
-        categories.fixes.push(commit);
-      } else if (message.includes('chore:') || message.includes('refactor:') || message.includes('perf:')) {
-        categories.chores.push(commit);
-      } else if (message.includes('docs:') || message.includes('readme:')) {
-        categories.docs.push(commit);
-      } else {
-        categories.other.push(commit);
-      }
-    });
-
-    return categories;
-  }
-
-  generateChangelog(newVersion, commits, versionType) {
-    const categories = this.categorizeCommits(commits);
-    const date = new Date().toISOString().split('T')[0];
-    
-    let changelog = `## [${newVersion}] - ${date}\n\n`;
-    
-    if (categories.breaking.length > 0) {
-      changelog += '### 🚨 Breaking Changes\n';
-      categories.breaking.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-    
-    if (categories.features.length > 0) {
-      changelog += '### ✨ New Features\n';
-      categories.features.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-    
-    if (categories.fixes.length > 0) {
-      changelog += '### 🐛 Bug Fixes\n';
-      categories.fixes.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-    
-    if (categories.chores.length > 0) {
-      changelog += '### 🔧 Chores & Improvements\n';
-      categories.chores.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-    
-    if (categories.docs.length > 0) {
-      changelog += '### 📚 Documentation\n';
-      categories.docs.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-    
-    if (categories.other.length > 0) {
-      changelog += '### 📝 Other Changes\n';
-      categories.other.forEach(commit => {
-        changelog += `- ${commit}\n`;
-      });
-      changelog += '\n';
-    }
-
-    return changelog;
-  }
-
-  generateReleaseNotes(newVersion, versionType) {
-    const releaseNotes = `# Pathao Merchant SDK v${newVersion}
-
-## 🚀 Release Information
-
-- **Version**: ${newVersion}
-- **Release Type**: ${versionType.charAt(0).toUpperCase() + versionType.slice(1)}
-- **Date**: ${new Date().toISOString().split('T')[0]}
-- **Package**: [pathao-merchant-sdk](https://www.npmjs.com/package/pathao-merchant-sdk)
-
-## 📦 Installation
-
-\`\`\`bash
-npm install pathao-merchant-sdk@${newVersion}
-# or
-yarn add pathao-merchant-sdk@${newVersion}
-# or
-pnpm add pathao-merchant-sdk@${newVersion}
-\`\`\`
-
-## 🔗 Links
-
-- [GitHub Repository](https://github.com/Sifat07/pathao-merchant-sdk)
-- [NPM Package](https://www.npmjs.com/package/pathao-merchant-sdk)
-- [Documentation](https://github.com/Sifat07/pathao-merchant-sdk#readme)
-
-## 📋 What's Changed
-
-See the [CHANGELOG.md](./CHANGELOG.md) for detailed changes.
-
----
-
-*This release was automatically generated by the CI/CD pipeline.*
-`;
-
-    return releaseNotes;
-  }
-
-  updatePackageJson(newVersion) {
-    this.packageJson.version = newVersion;
-    fs.writeFileSync(PACKAGE_JSON_PATH, JSON.stringify(this.packageJson, null, 2) + '\n');
-    console.log(`✅ Updated package.json to version ${newVersion}`);
-  }
-
-  updateChangelog(changelog) {
-    let existingChangelog = '';
-    if (fs.existsSync(CHANGELOG_PATH)) {
-      existingChangelog = fs.readFileSync(CHANGELOG_PATH, 'utf8');
-    }
-    
-    const newChangelog = changelog + '\n' + existingChangelog;
-    fs.writeFileSync(CHANGELOG_PATH, newChangelog);
-    console.log('✅ Updated CHANGELOG.md');
-  }
-
-  writeReleaseNotes(releaseNotes) {
-    fs.writeFileSync(RELEASE_NOTES_PATH, releaseNotes);
-    console.log('✅ Generated RELEASE_NOTES.md');
-  }
-
-  createGitTag(newVersion) {
-    try {
-      execSync(`git tag -a v${newVersion} -m "Release v${newVersion}"`, { stdio: 'inherit' });
-      console.log(`✅ Created git tag v${newVersion}`);
-    } catch (error) {
-      console.error('Error creating git tag:', error.message);
-    }
-  }
-
-  run({ dryRun = false, changelogOnly = false } = {}) {
-    console.log('🚀 Starting automatic release process...\n');
-    if (dryRun) console.log('ℹ️  DRY RUN — no files will be modified.\n');
-    if (changelogOnly) console.log('ℹ️  CHANGELOG ONLY — version will not be bumped.\n');
-    
-    // Get commits since last tag
-    const commits = this.getCommitsSinceLastTag();
-    console.log(`📝 Found ${commits.length} commits since last release`);
-    
-    if (commits.length === 0) {
-      console.log('ℹ️  No new commits found. Nothing to release.');
-      return;
-    }
-    
-    // Determine version type
-    const versionType = this.determineVersionType(commits);
-    console.log(`📊 Version type determined: ${versionType}`);
-    
-    // Calculate new version
-    const newVersion = this.bumpVersion(versionType);
-    console.log(`🔢 New version: ${this.currentVersion} → ${newVersion}`);
-    
-    // Generate changelog and release notes
-    const changelog = this.generateChangelog(newVersion, commits, versionType);
-    const releaseNotes = this.generateReleaseNotes(newVersion, versionType);
-    
-    // Update files (skip on dry run or changelog-only for version)
-    if (!dryRun && !changelogOnly) this.updatePackageJson(newVersion);
-    if (!dryRun) this.updateChangelog(changelog);
-    if (!dryRun) this.writeReleaseNotes(releaseNotes);
-
-    // Create git tag (skip on dry run or changelog-only)
-    if (!dryRun && !changelogOnly) this.createGitTag(newVersion);
-    
-    console.log('\n🎉 Release process completed!');
-    console.log(`📦 New version: ${newVersion}`);
-    console.log(`🏷️  Git tag: v${newVersion}`);
-    console.log(`📄 Changelog: CHANGELOG.md`);
-    console.log(`📋 Release notes: RELEASE_NOTES.md`);
-    
-    return {
-      version: newVersion,
-      type: versionType,
-      commits: commits.length,
-      changelog,
-      releaseNotes
-    };
-  }
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-// Run the release manager
+function git(...args) {
+  const result = spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+  if (result.error) throw result.error;
+  return result.stdout.trim();
+}
+
+function getLastTag() {
+  const tags = git("tag", "--sort=-version:refname")
+    .split("\n")
+    .filter((t) => /^v\d/.test(t));
+  return tags[0] || null;
+}
+
+function getCommitsSinceLastTag() {
+  const lastTag = getLastTag();
+  const range = lastTag ? `${lastTag}..HEAD` : "HEAD";
+  const out = git("log", "--oneline", range);
+  return out ? out.split("\n").filter(Boolean) : [];
+}
+
+function determineVersionBump(commits) {
+  for (const c of commits) {
+    const msg = c.toLowerCase();
+    if (
+      msg.includes("breaking change:") ||
+      msg.includes("breaking:") ||
+      msg.includes("major:")
+    ) {
+      return "major";
+    }
+  }
+  for (const c of commits) {
+    const msg = c.toLowerCase();
+    if (
+      msg.includes("feat:") ||
+      msg.includes("feature:") ||
+      msg.includes("minor:") ||
+      msg.includes("new:")
+    ) {
+      return "minor";
+    }
+  }
+  return "patch";
+}
+
+function bumpVersion(current, type) {
+  const [major, minor, patch] = current.split(".").map(Number);
+  if (type === "major") return `${major + 1}.0.0`;
+  if (type === "minor") return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
+}
+
+function promoteUnreleased(changelogContent, newVersion, date) {
+  return changelogContent.replace(
+    /^## \[Unreleased\]/m,
+    `## [Unreleased]\n\n---\n\n## [${newVersion}] - ${date}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+function run({ dryRun = false, changelogOnly = false } = {}) {
+  console.log("Starting release process...\n");
+  if (dryRun) console.log("DRY RUN — no files will be modified.\n");
+
+  const pkg = readJson(PACKAGE_JSON_PATH);
+  const currentVersion = pkg.version;
+
+  const commits = getCommitsSinceLastTag();
+  console.log(`Commits since last tag: ${commits.length}`);
+  if (commits.length === 0) {
+    console.log("No new commits. Nothing to release.");
+    return;
+  }
+
+  const bumpType = determineVersionBump(commits);
+  const newVersion = bumpVersion(currentVersion, bumpType);
+  const date = new Date().toISOString().split("T")[0];
+
+  console.log(`Bump type : ${bumpType}`);
+  console.log(`Version   : ${currentVersion} → ${newVersion}`);
+  console.log(`Date      : ${date}`);
+
+  if (dryRun) {
+    console.log("\nDry run complete. No files changed.");
+    return { version: newVersion, type: bumpType };
+  }
+
+  // Update CHANGELOG.md — promote [Unreleased] to new version
+  const changelog = fs.readFileSync(CHANGELOG_PATH, "utf8");
+  fs.writeFileSync(
+    CHANGELOG_PATH,
+    promoteUnreleased(changelog, newVersion, date),
+  );
+  console.log("Updated CHANGELOG.md");
+
+  if (!changelogOnly) {
+    // Bump package.json
+    pkg.version = newVersion;
+    fs.writeFileSync(PACKAGE_JSON_PATH, JSON.stringify(pkg, null, 2) + "\n");
+    console.log("Updated package.json");
+
+    // Create git tag
+    spawnSync(
+      "git",
+      ["tag", "-a", `v${newVersion}`, "-m", `Release v${newVersion}`],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+      },
+    );
+    console.log(`Created git tag v${newVersion}`);
+  }
+
+  console.log("\nRelease complete.");
+  return { version: newVersion, type: bumpType };
+}
+
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const dryRun = args.includes('--dry-run');
-  const changelogOnly = args.includes('--changelog-only');
-  const releaseManager = new ReleaseManager();
   try {
-    releaseManager.run({ dryRun, changelogOnly });
-  } catch (error) {
-    console.error('❌ Release process failed:', error.message);
+    run({
+      dryRun: args.includes("--dry-run"),
+      changelogOnly: args.includes("--changelog-only"),
+    });
+  } catch (err) {
+    console.error("Release failed:", err.message);
     process.exit(1);
   }
 }
 
-module.exports = ReleaseManager;
+module.exports = { run };

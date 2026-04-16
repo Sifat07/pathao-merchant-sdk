@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: 'Type of release'
+        description: "Type of release"
         required: true
-        default: 'auto'
+        default: "auto"
         type: choice
         options:
-        - auto
-        - patch
-        - minor
-        - major
+          - auto
+          - patch
+          - minor
+          - major
 
 jobs:
   manual-release:
@@ -21,100 +21,100 @@ jobs:
     permissions:
       contents: write
       packages: write
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 9
-        run_install: false
-        
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'pnpm'
-        registry-url: 'https://registry.npmjs.org'
-        
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-      
-    - name: Configure Git
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        
-    - name: Run tests
-      run: |
-        pnpm run lint
-        pnpm run type-check
-        pnpm test
-        pnpm run build
-        
-    - name: Manual version bump
-      if: ${{ inputs.release_type != 'auto' }}
-      run: |
-        case "${{ inputs.release_type }}" in
-          "patch")
-            pnpm run version:patch
-            ;;
-          "minor")
-            pnpm run version:minor
-            ;;
-          "major")
-            pnpm run version:major
-            ;;
-        esac
-        
-    - name: Generate changelog and release notes
-      run: |
-        pnpm run changelog
-        
-    - name: Create git tag
-      run: |
-        VERSION=$(node -p "require('./package.json').version")
-        git add .
-        git commit -m "chore: bump version to $VERSION" || true
-        git tag -a "v$VERSION" -m "Release v$VERSION"
-        
-    - name: Push changes and tags
-      run: |
-        git push origin main
-        git push origin --tags
-        
-    - name: Check version does not already exist on npm
-      run: |
-        VERSION=$(node -p "require('./package.json').version")
-        if npm view pathao-merchant-sdk@$VERSION version > /dev/null 2>&1; then
-          echo "❌ Version $VERSION already exists on npm. Bump the version before releasing."
-          exit 1
-        fi
-        echo "✅ Version $VERSION is new and can be published"
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Publish to npm
-      run: pnpm publish
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
 
-    - name: Get version
-      id: get_version
-      run: |
-        VERSION=$(node -p "require('./package.json').version")
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ steps.get_version.outputs.version }}
-        name: Release v${{ steps.get_version.outputs.version }}
-        body_path: RELEASE_NOTES.md
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Run tests
+        run: |
+          pnpm run lint
+          pnpm run type-check
+          pnpm test
+          pnpm run build
+
+      - name: Manual version bump
+        if: ${{ inputs.release_type != 'auto' }}
+        run: |
+          case "${{ inputs.release_type }}" in
+            "patch")
+              pnpm run version:patch
+              ;;
+            "minor")
+              pnpm run version:minor
+              ;;
+            "major")
+              pnpm run version:major
+              ;;
+          esac
+
+      - name: Generate changelog and release notes
+        run: |
+          pnpm run changelog
+
+      - name: Create git tag
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git add .
+          git commit -m "chore: bump version to $VERSION" || true
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+
+      - name: Push changes and tags
+        run: |
+          git push origin main
+          git push origin --tags
+
+      - name: Check version does not already exist on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view pathao-merchant-sdk@$VERSION version > /dev/null 2>&1; then
+            echo "❌ Version $VERSION already exists on npm. Bump the version before releasing."
+            exit 1
+          fi
+          echo "✅ Version $VERSION is new and can be published"
+
+      - name: Publish to npm
+        run: pnpm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
