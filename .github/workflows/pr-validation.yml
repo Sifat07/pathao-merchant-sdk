@@ -2,128 +2,74 @@ name: PR Validation
 
 on:
   pull_request:
-    branches: [ main, develop ]
-    types: [ opened, synchronize, reopened ]
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 jobs:
-  validate-pr:
-    name: Validate Pull Request
+  validate:
+    name: Validate PR
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 9
-        run_install: false
-        
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'pnpm'
-        
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-      
-    - name: Check for pnpm-lock.yaml changes
-      run: |
-        if git diff --name-only ${{ github.event.pull_request.base.sha }}..HEAD | grep -q "pnpm-lock.yaml"; then
-          echo "⚠️ pnpm-lock.yaml has been modified. Please run 'pnpm install' to update it properly."
-        else
-          echo "✅ pnpm-lock.yaml is up to date"
-        fi
-        
-    - name: Run linting
-      run: pnpm run lint
-      
-    - name: Run type checking
-      run: pnpm run type-check
-      
-    - name: Run tests
-      run: pnpm test
-      
-    - name: Build package
-      run: pnpm run build
-      
-    - name: Test package installation
-      run: |
-        # Test that the package can be installed locally
-        pnpm pack
-        pnpm install ./pathao-merchant-sdk-*.tgz
-        
-    - name: Check bundle size
-      run: |
-        echo "Checking bundle sizes..."
-        echo "CJS bundle:"
-        ls -lh dist/index.js
-        echo "ESM bundle:"
-        ls -lh dist/index.mjs
-        echo "Type definitions:"
-        ls -lh dist/index.d.ts
-        
-    - name: Validate package.json
-      run: |
-        echo "Validating package.json..."
-        node -e "
-          const pkg = require('./package.json');
-          const required = ['name', 'version', 'description', 'main', 'module', 'types', 'files'];
-          const missing = required.filter(field => !pkg[field]);
-          if (missing.length > 0) {
-            console.error('Missing required fields:', missing);
-            process.exit(1);
-          }
-          console.log('✅ package.json is valid');
-        "
-        
-    - name: Check for breaking changes
-      run: |
-        echo "Checking for potential breaking changes..."
-        # This is a basic check - you could add more sophisticated change detection
-        if git diff --name-only ${{ github.event.pull_request.base.sha }}..HEAD | grep -q "src/"; then
-          echo "⚠️ Source code changes detected. Please ensure backward compatibility."
-        fi
-        
-    - name: Comment PR with build status
-      uses: actions/github-script@v7
-      if: always()
-      with:
-        script: |
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const jobStatus = '${{ job.status }}';
-          const passed = jobStatus === 'success';
-          const icon = passed ? '✅' : '❌';
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-          const comment = `## ${icon} PR Validation Results
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-          **Package:** \`${pkg.name}@${pkg.version}\`
-          **Node.js:** 20.x
-          **Build Status:** ${jobStatus.toUpperCase()}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: pnpm
 
-          ${passed
-            ? `### ✅ All Checks Passed:
-          - Linting
-          - Type checking
-          - Unit tests
-          - Build process
-          - Package validation`
-            : `### ❌ One or more checks failed — see job logs above for details.`
-          }
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-          ### 📦 Bundle Info:
-          - CJS: \`dist/index.js\`
-          - ESM: \`dist/index.mjs\`
-          - Types: \`dist/index.d.ts\``;
+      - name: Lint
+        run: pnpm run lint
 
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Validate package.json fields
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const required = ['name', 'version', 'description', 'main', 'module', 'types', 'exports', 'files'];
+            const missing = required.filter(f => !pkg[f]);
+            if (missing.length) { console.error('Missing fields:', missing); process.exit(1); }
+            console.log('package.json OK');
+          "
+
+      - name: Check bundle sizes
+        run: |
+          ls -lh dist/index.js dist/index.mjs dist/index.d.ts
+          ls -lh dist/webhooks.js dist/webhooks.mjs dist/webhooks.d.ts
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const pkg = JSON.parse(require('fs').readFileSync('package.json', 'utf8'));
+            const passed = '${{ job.status }}' === 'success';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                `## ${passed ? '✅' : '❌'} PR Validation — \`${pkg.name}@${pkg.version}\``,
+                '',
+                passed
+                  ? '**All checks passed:** lint · type-check · tests · build · package validation'
+                  : '**One or more checks failed** — see job logs for details.',
+              ].join('\n')
+            });

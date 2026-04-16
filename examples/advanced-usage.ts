@@ -1,5 +1,5 @@
 /**
- * Advanced usage examples for pathao-merchant-sdk v2.0.2
+ * Advanced usage examples for pathao-merchant-sdk
  *
  * Demonstrates:
  * - Factory methods (fromEnv, fromConfig)
@@ -79,7 +79,7 @@ const pathao = new PathaoApiService(
 async function exampleErrorHandling() {
   try {
     const order = await pathao.createOrder({
-      store_id: 123,
+      store_id: Number(process.env.PATHAO_STORE_ID),
       recipient_name: 'John Doe',
       recipient_phone: '01712345678',
       recipient_address: '123 Main Street, Dhaka',
@@ -148,7 +148,7 @@ async function exampleDeferredValidation() {
 //
 // [Pathao SDK] POST /aladdin/api/v1/orders {
 //   headers: {
-//     'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIs...',
+//     'Authorization': 'Bearer [REDACTED]',
 //     'Content-Type': 'application/json'
 //   },
 //   data: {

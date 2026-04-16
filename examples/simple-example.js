@@ -1,10 +1,10 @@
 /**
- * Simple usage example for @sifat07/pathao-merchant-sdk
+ * Simple usage example for pathao-merchant-sdk
  * 
  * This example shows how to use the Pathao SDK in a basic Node.js application.
  */
 
-const { PathaoApiService, DeliveryType, ItemType } = require('@sifat07/pathao-merchant-sdk');
+const { PathaoApiService, DeliveryType, ItemType } = require('pathao-merchant-sdk');
 
 async function simpleExample() {
   // Initialize the Pathao service
@@ -21,7 +21,7 @@ async function simpleExample() {
 
     // Create a delivery order
     const order = await pathao.createOrder({
-      store_id: 123, // Replace with your actual store ID
+      store_id: Number(process.env.PATHAO_STORE_ID),
       merchant_order_id: `ORDER-${Date.now()}`,
       recipient_name: 'John Doe',
       recipient_phone: '01712345678',

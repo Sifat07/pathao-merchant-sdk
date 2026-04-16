@@ -1,5 +1,11 @@
 # Pathao Merchant SDK v2.0.2 - Implementation Summary
 
+# v2.2.0 (2026-04-15) Improvements
+
+- Fixed webhook integration: correct header handling, improved event processing, and clearer error messages.
+- Internal refactoring of webhook handler for maintainability.
+- All webhook and API integration tests passing.
+
 ## Overview
 
 Comprehensive improvements to the Pathao Merchant SDK following a thorough best practices audit. All improvements focused on improving developer experience, error handling, and operational visibility.
@@ -11,21 +17,23 @@ Comprehensive improvements to the Pathao Merchant SDK following a thorough best 
 **What**: Added static factory methods for convenient initialization patterns.
 
 **Implementation**:
+
 ```typescript
 // Create from environment variables (reads PATHAO_* env vars)
 const pathao = PathaoApiService.fromEnv();
 
 // Create from explicit config
 const pathao = PathaoApiService.fromConfig({
-  clientId: 'client-id',
-  clientSecret: 'client-secret',
-  username: 'username',
-  password: 'password',
-  baseURL: 'https://api-hermes.pathao.com'
+  clientId: "client-id",
+  clientSecret: "client-secret",
+  username: "username",
+  password: "password",
+  baseURL: "https://api-hermes.pathao.com",
 });
 ```
 
-**Benefit**: 
+**Benefit**:
+
 - More discoverable API
 - Follows npm library best practices (e.g., express.json())
 - Cleaner code for common use cases
@@ -37,9 +45,10 @@ const pathao = PathaoApiService.fromConfig({
 **What**: Optional debug flag to log all HTTP requests and responses.
 
 **Implementation**:
+
 ```typescript
 const pathao = PathaoApiService.fromEnv({
-  debug: true  // Enable detailed logging
+  debug: true, // Enable detailed logging
 });
 
 // Output:
@@ -48,11 +57,13 @@ const pathao = PathaoApiService.fromEnv({
 ```
 
 **Benefit**:
+
 - Troubleshoot API integration issues faster
 - Understand request/response flow without external tools
 - Production-safe (disabled by default)
 
 **Location**: `src/pathao-api.ts`
+
 - Request interceptor (lines ~151-156)
 - Response interceptor (lines ~167-171)
 
@@ -61,21 +72,24 @@ const pathao = PathaoApiService.fromEnv({
 **What**: Allow customization of circuit breaker threshold and timeout.
 
 **Implementation**:
+
 ```typescript
 const pathao = PathaoApiService.fromEnv({
   circuitBreaker: {
-    threshold: 10,    // failures before opening (default: 5)
-    timeout: 120000   // wait before retry (default: 60000ms)
-  }
+    threshold: 10, // failures before opening (default: 5)
+    timeout: 120000, // wait before retry (default: 60000ms)
+  },
 });
 ```
 
 **Benefit**:
+
 - Adapt to different API reliability patterns
 - More aggressive protection for critical systems
 - Faster recovery for more resilient APIs
 
 **Location**: `src/pathao-api.ts`
+
 - Interface definition (lines ~68-71)
 - Constructor initialization (lines ~115-120)
 - Constructor options parameter (line ~103)
@@ -85,23 +99,25 @@ const pathao = PathaoApiService.fromEnv({
 **What**: Comprehensive error handling documentation and examples.
 
 **Implementation**:
+
 ```typescript
 try {
   const order = await pathao.createOrder(orderData);
 } catch (error) {
   if (error instanceof PathaoApiError) {
-    console.error('Pathao API Error:', {
-      status: error.status,        // HTTP status
-      code: error.code,            // Error code
-      type: error.type,            // Error type
-      errors: error.errors,        // Field errors
-      validation: error.validation // Validation errors
+    console.error("Pathao API Error:", {
+      status: error.status, // HTTP status
+      code: error.code, // Error code
+      type: error.type, // Error type
+      errors: error.errors, // Field errors
+      validation: error.validation, // Validation errors
     });
   }
 }
 ```
 
 **Benefit**:
+
 - Clear error handling patterns for developers
 - Type-safe error checking
 - Better debugging information
@@ -113,6 +129,7 @@ try {
 **What**: Moved configuration validation from constructor to first API call.
 
 **Implementation**:
+
 ```typescript
 // SDK initializes successfully
 const pathao = new PathaoApiService({});
@@ -126,11 +143,13 @@ try {
 ```
 
 **Benefit**:
+
 - Doesn't block app startup with environment issues
 - Gradual initialization for complex setups
 - Better for testing and mock scenarios
 
 **Location**: `src/pathao-api.ts`
+
 - Validation method (lines ~228-254)
 - Request interceptor (line ~143)
 
@@ -139,6 +158,7 @@ try {
 **What**: New optional `options` parameter for all initialization patterns.
 
 **Signature**:
+
 ```typescript
 constructor(config: PathaoConfig, options?: {
   debug?: boolean;
@@ -147,6 +167,7 @@ constructor(config: PathaoConfig, options?: {
 ```
 
 **Benefit**:
+
 - Future-proof for additional options
 - Consistent with modern npm libraries
 - Clean separation of config vs. runtime options
@@ -158,6 +179,7 @@ constructor(config: PathaoConfig, options?: {
 **What**: Enhanced README with advanced configuration and usage examples.
 
 **Additions**:
+
 - Factory methods section with examples
 - Advanced options documentation
 - Configuration validation examples
@@ -165,6 +187,7 @@ constructor(config: PathaoConfig, options?: {
 - Debug logging explanation
 
 **Location**: `README.md`
+
 - Factory methods (lines ~160-185)
 - Advanced options (lines ~187-205)
 - Error handling (lines ~298-341)
@@ -172,16 +195,19 @@ constructor(config: PathaoConfig, options?: {
 ## Code Quality Improvements
 
 ### Type Safety
+
 - `CircuitBreakerConfig` interface for circuit breaker customization
 - `ResolvedPathaoConfig` ensures timeout is always a number
 - Type-safe factory methods
 
 ### Maintainability
+
 - Consistent error handling patterns
 - Clear separation of concerns (config vs. options)
 - Well-documented private methods
 
 ### Developer Experience
+
 - Convenient factory methods
 - Debug logging for troubleshooting
 - Clear error messages with structured data
@@ -209,7 +235,7 @@ npm run build
 
 - **Version**: 2.0.2 (patch bump from 2.0.1)
 - **Released**: 2025-12-08
-- **Breaking Changes**: 
+- **Breaking Changes**:
   - Configuration validation now deferred (constructor no longer throws)
   - This is actually a breaking change - versions are corrected as v2.0.2
 
@@ -227,15 +253,16 @@ npm run build
 ### From v2.0.1 to v2.0.2
 
 **Configuration validation behavior change**:
+
 ```typescript
 // Before (v2.0.1): Throws immediately
 const pathao = new PathaoApiService({
-  clientId: '' // Missing credentials - throws here
+  clientId: "", // Missing credentials - throws here
 });
 
 // After (v2.0.2): Throws on first API call
 const pathao = new PathaoApiService({
-  clientId: '' // Missing credentials - OK here
+  clientId: "", // Missing credentials - OK here
 });
 
 // Error happens here:
@@ -243,13 +270,14 @@ await pathao.getStores(); // PathaoApiError thrown with validation details
 ```
 
 **New conveniences** (optional):
+
 ```typescript
 // Now available (previously not):
 const pathao = PathaoApiService.fromEnv({ debug: true });
 
 // Customize circuit breaker:
 const pathao = new PathaoApiService(config, {
-  circuitBreaker: { threshold: 10, timeout: 120000 }
+  circuitBreaker: { threshold: 10, timeout: 120000 },
 });
 ```
 
