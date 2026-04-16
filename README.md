@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/sifat07/pathao-merchant-sdk/ci.yml?branch=main)](https://github.com/sifat07/pathao-merchant-sdk/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/sifat07/pathao-merchant-sdk/ci-cd.yml?branch=main)](https://github.com/sifat07/pathao-merchant-sdk/actions)
 
 An **unofficial** TypeScript SDK for the [Pathao Courier Merchant API](https://merchant.pathao.com/developer). Provides a type-safe interface for order management, store management, price calculation, location lookup, and webhook handling.
 
@@ -102,10 +102,10 @@ Obtain your `client_id`, `client_secret`, username, and password from the **API 
 
 ### Environment Variables
 
-Copy `env.example` to `.env`:
+Copy `.env.example` to `.env`:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 ```env
@@ -443,7 +443,7 @@ handler.on("error", (err) => {
 
 app.post(
   "/webhooks/pathao",
-  express.json(),
+  express.raw({ type: "application/json" }),
   handler.expressMiddleware(),
   (req, res) => {
     // expressMiddleware() sets the required secret header automatically.
@@ -488,7 +488,7 @@ import {
   PathaoWebhookError,
 } from "pathao-merchant-sdk/webhooks";
 
-app.post("/webhooks/pathao", express.json(), (req, res) => {
+app.post("/webhooks/pathao", express.raw({ type: "application/json" }), (req, res) => {
   res.setHeader(
     "X-Pathao-Merchant-Webhook-Integration-Secret",
     process.env.PATHAO_WEBHOOK_SECRET!,
@@ -602,7 +602,13 @@ Open an issue on [GitHub](https://github.com/sifat07/pathao-merchant-sdk/issues)
 
 ## Changelog
 
-### 2.2.0 — 2026-04-15
+### 2.3.0 — 2026-04-16
+
+- Replaced broken `pnpm audit` with OSV Scanner (scoped to production dependencies)
+- Fixed release-please to read from manifest — prevents wrong version PRs
+- Fixed CI/CD: pinned pnpm to v9, added `permissions` blocks, fixed `manual-release.yml` broken scripts and step ordering
+
+### 2.2.0 — 2026-04-16
 
 - Added 3 missing webhook event types from official dashboard docs: `order.return-id-created`, `order.return-in-transit`, `order.returned-to-merchant` with full `ReturnOrderWebhookPayload` type
 - Fixed tsconfig: added `node` and `jest` to `types` so `Buffer`/`EventEmitter` resolve correctly
