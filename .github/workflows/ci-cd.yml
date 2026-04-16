@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (Node ${{ matrix.node-version }})
@@ -48,19 +51,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # Download pinned osv-scanner binary — faster than go install and version-locked.
+      - name: Install OSV Scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
 
-      # Audit production dependencies only — devDep vulnerabilities (eslint, tsup,
-      # ts-jest) are not shipped to users and have no available fixes upstream yet.
-      - name: Audit production dependencies
-        run: pnpm audit --audit-level=high --prod
+      # Scan all packages, then fail only if a production dependency is vulnerable.
+      # Dev dep vulnerabilities (jest, tsup, eslint tooling) are not shipped to users.
+      - name: Scan for vulnerabilities
+        run: osv-scanner --lockfile=pnpm-lock.yaml --format=json > osv-report.json || true
+
+      - name: Check production dependencies
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const prodDeps = new Set(Object.keys(pkg.dependencies || {}));
+            const report = JSON.parse(require('fs').readFileSync('osv-report.json', 'utf8'));
+            const affected = (report.results || [])
+              .flatMap(r => r.packages || [])
+              .filter(p => prodDeps.has(p.package?.name));
+            if (affected.length > 0) {
+              console.error('Production dependencies with vulnerabilities:');
+              affected.forEach(p => {
+                const ids = (p.vulnerabilities || []).map(v => v.id).join(', ');
+                console.error('  ' + p.package.name + '@' + p.package.version + ' — ' + ids);
+              });
+              process.exit(1);
+            }
+            console.log('No production dependency vulnerabilities found.');
+          "

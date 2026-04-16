@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +32,15 @@ jobs:
           pnpm run type-check
           pnpm test
           pnpm run build
+
+      - name: Check version does not already exist on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view pathao-merchant-sdk@$VERSION version > /dev/null 2>&1; then
+            echo "Version $VERSION already exists on npm — skipping publish."
+            exit 1
+          fi
+          echo "Version $VERSION is new, proceeding with publish."
 
       - name: Publish
         run: pnpm publish --no-git-checks

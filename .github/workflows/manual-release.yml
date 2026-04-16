@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: "Type of release"
+        description: "Version bump type"
         required: true
-        default: "auto"
+        default: "patch"
         type: choice
         options:
-          - auto
           - patch
           - minor
           - major
@@ -20,101 +19,74 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
-          run_install: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20.x"
-          cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
+          node-version: '20.x'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Run tests
+      - name: Lint, type-check, test, build
         run: |
           pnpm run lint
           pnpm run type-check
           pnpm test
           pnpm run build
 
-      - name: Manual version bump
-        if: ${{ inputs.release_type != 'auto' }}
-        run: |
-          case "${{ inputs.release_type }}" in
-            "patch")
-              pnpm run version:patch
-              ;;
-            "minor")
-              pnpm run version:minor
-              ;;
-            "major")
-              pnpm run version:major
-              ;;
-          esac
-
-      - name: Generate changelog and release notes
-        run: |
-          pnpm run changelog
-
-      - name: Create git tag
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          git add .
-          git commit -m "chore: bump version to $VERSION" || true
-          git tag -a "v$VERSION" -m "Release v$VERSION"
-
-      - name: Push changes and tags
-        run: |
-          git push origin main
-          git push origin --tags
+      - name: Bump version
+        run: npm version ${{ inputs.release_type }} --no-git-tag-version
 
       - name: Check version does not already exist on npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
           if npm view pathao-merchant-sdk@$VERSION version > /dev/null 2>&1; then
-            echo "❌ Version $VERSION already exists on npm. Bump the version before releasing."
+            echo "Version $VERSION already exists on npm."
             exit 1
           fi
-          echo "✅ Version $VERSION is new and can be published"
+          echo "Version $VERSION is new, proceeding."
 
-      - name: Publish to npm
-        run: pnpm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Commit, tag, and push
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git add package.json
+          git commit -m "chore: release v$VERSION"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin main --follow-tags
 
       - name: Get version
         id: get_version
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Publish to npm
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: Release v${{ steps.get_version.outputs.version }}
-          body_path: RELEASE_NOTES.md
+          body_path: CHANGELOG.md
           draft: false
           prerelease: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
