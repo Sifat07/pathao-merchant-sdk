@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.2.0...pathao-merchant-sdk-v2.3.0) (2026-04-16)
+
+
+### Features
+
+* add comprehensive CI/CD pipeline and automatic release management ([2448245](https://github.com/Sifat07/pathao-merchant-sdk/commit/244824566dd20171fe28365d0b312d3c7f07f51e))
+* add comprehensive CI/CD pipeline and automatic release management ([2448245](https://github.com/Sifat07/pathao-merchant-sdk/commit/244824566dd20171fe28365d0b312d3c7f07f51e))
+* add webhook support and comprehensive security hardening (v2.1.0) ([fd24917](https://github.com/Sifat07/pathao-merchant-sdk/commit/fd24917a2d6bdd21dada4eb434750c010d660c45))
+* enhance Pathao API SDK with environment variable support and improved error handling ([b4fa591](https://github.com/Sifat07/pathao-merchant-sdk/commit/b4fa59117c9f19d5da1396f2b6fa507d6610d7b5))
+* update error handling ([fa4dce5](https://github.com/Sifat07/pathao-merchant-sdk/commit/fa4dce5a13a414a0ecec312a149a7162655ee360))
+
+
+### Bug Fixes
+
+* auto release ([eaabb14](https://github.com/Sifat07/pathao-merchant-sdk/commit/eaabb148a919b418288b0dd9b68c50616e941502))
+* correct version base to 2.2.0 and use PAT for release-please ([eaabb14](https://github.com/Sifat07/pathao-merchant-sdk/commit/eaabb148a919b418288b0dd9b68c50616e941502))
+* defer validation ([2c08435](https://github.com/Sifat07/pathao-merchant-sdk/commit/2c0843549a012f81d89f74344a97393ab81638c3))
+* fix and update using latest developers docs ([f2205a2](https://github.com/Sifat07/pathao-merchant-sdk/commit/f2205a23ae9b5c38e38ecf94cb48bf300f46c6a0))
+* fix webhook integration ([498d0f2](https://github.com/Sifat07/pathao-merchant-sdk/commit/498d0f25ee7e0f88484131f8b18ec8ce20faa04b))
+* separate publishing from CI and fix permission issues ([2448245](https://github.com/Sifat07/pathao-merchant-sdk/commit/244824566dd20171fe28365d0b312d3c7f07f51e))
+* update CI/CD workflows to use pnpm instead of npm ([2448245](https://github.com/Sifat07/pathao-merchant-sdk/commit/244824566dd20171fe28365d0b312d3c7f07f51e))
+* update pnpm version to 9 in CI workflows ([2448245](https://github.com/Sifat07/pathao-merchant-sdk/commit/244824566dd20171fe28365d0b312d3c7f07f51e))
+* upgrade pnpm to v10 in CI to fix audit endpoint 410 error ([eaabb14](https://github.com/Sifat07/pathao-merchant-sdk/commit/eaabb148a919b418288b0dd9b68c50616e941502))
+
 ## [Unreleased]
 
 ### Added
