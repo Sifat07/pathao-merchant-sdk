@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2](https://github.com/Sifat07/pathao-merchant-sdk/compare/v2.1.1...v2.1.2) (2026-04-16)
+
+
+### Bug Fixes
+
+* correct version base to 2.2.0 and use PAT for release-please ([bba81da](https://github.com/Sifat07/pathao-merchant-sdk/commit/bba81da81d423d4d40b161c430bdac614e6de2ad))
+* upgrade pnpm to v10 in CI to fix audit endpoint 410 error ([6d4e147](https://github.com/Sifat07/pathao-merchant-sdk/commit/6d4e147800e78d4a56a0d4655929b817b226298a))
+
 ## [Unreleased]
 
 ### Added
