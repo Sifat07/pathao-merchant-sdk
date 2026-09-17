@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.0...pathao-merchant-sdk-v2.3.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **deps:** bump axios to 1.20.0, resolve prod vulnerabilities ([0c31804](https://github.com/Sifat07/pathao-merchant-sdk/commit/0c318043831cf0a74a041b4aa6aa8a827a48f737))
+
 ## [2.3.0](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.2.0...pathao-merchant-sdk-v2.3.0) (2026-04-16)
 
 ### Bug Fixes
