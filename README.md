@@ -2,6 +2,8 @@
 
 [![npm version](https://img.shields.io/npm/v/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
 [![npm downloads](https://img.shields.io/npm/dm/pathao-merchant-sdk.svg)](https://www.npmjs.com/package/pathao-merchant-sdk)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/pathao-merchant-sdk.svg)](https://bundlephobia.com/package/pathao-merchant-sdk)
+[![GitHub stars](https://img.shields.io/github/stars/sifat07/pathao-merchant-sdk.svg)](https://github.com/sifat07/pathao-merchant-sdk/stargazers)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/sifat07/pathao-merchant-sdk/ci-cd.yml?branch=main)](https://github.com/sifat07/pathao-merchant-sdk/actions)
