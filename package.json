@@ -63,7 +63,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "axios": "^1.15.0"
+    "axios": "^1.20.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
