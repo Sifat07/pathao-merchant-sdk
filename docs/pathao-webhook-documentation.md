@@ -15,7 +15,9 @@ Pathao sends webhook events as HTTP POST requests to your configured URL wheneve
 
 ### Verification mechanism
 
-Pathao does **not** sign inbound requests with HMAC. Instead, it sends your configured webhook secret in the `X-PATHAO-Signature` request header, and verifies your endpoint by checking that your response includes the same secret in `X-Pathao-Merchant-Webhook-Integration-Secret`.
+Pathao does **not** sign inbound requests with HMAC. Instead, it sends the webhook secret in the `X-PATHAO-Signature` request header, and verifies your endpoint by checking that your response includes the same secret in `X-Pathao-Merchant-Webhook-Integration-Secret`.
+
+**This is not authentication.** The secret is one fixed value (`f3992ecc-59da-4cbe-a049-a13da2018d51`) shared by all merchants and hardcoded in Pathao's own [WooCommerce plugin](https://github.com/pathao-eng/courier-woocommerce-plugin/blob/main/plugin-api.php). Anyone can forge a request carrying it. Re-fetch the order via the Merchant API (`getOrderStatus`) before acting on any webhook.
 
 ### Inbound request headers
 
