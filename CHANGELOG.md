@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.1...pathao-merchant-sdk-v2.3.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* stop 429s tripping the circuit breaker, document webhook trust ([4861fc7](https://github.com/Sifat07/pathao-merchant-sdk/commit/4861fc7177c1872dfbbeb271c28f832ab82435c1))
+
 ## [2.3.1](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.0...pathao-merchant-sdk-v2.3.1) (2026-09-17)
 
 
