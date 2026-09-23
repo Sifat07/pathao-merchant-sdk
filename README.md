@@ -377,8 +377,14 @@ try {
 | 400    | Bad request / missing required fields                        |
 | 401    | Invalid or expired credentials                               |
 | 422    | Validation failure — check `err.errors` for field details    |
-| 429    | Rate limited — SDK retries automatically after `Retry-After` |
-| 503    | Circuit breaker open — too many consecutive failures         |
+| 429    | Rate limited — see below                                     |
+| 503    | Circuit breaker open — repeated network, 5xx or 401 failures |
+
+### Rate limits
+
+Pathao doesn't document its limits. Measured against its gateway (Sep 2026): **60 requests per rolling 60 seconds**, and the `429` carries **no `Retry-After` header**. The SDK therefore does not retry a `429` unless the server sends `Retry-After`; it throws `PathaoApiError` with `status: 429` so you can back off. 429s never open the circuit breaker.
+
+For bulk work (e.g. polling `getOrderStatus` for many orders) space calls out yourself — about one request every 1.5 s keeps you near 40/min and leaves headroom for webhooks and other calls sharing the same credentials.
 
 ---
 
@@ -389,9 +395,12 @@ The webhooks module is a **separate entry point** with zero runtime dependencies
 ### How Pathao webhooks work
 
 1. Pathao sends a POST request with a JSON payload to your URL.
-2. The `X-PATHAO-Signature` header contains your configured webhook secret verbatim.
-3. Your endpoint must respond within 10 seconds with an `X-Pathao-Merchant-Webhook-Integration-Secret` header whose value equals your webhook secret.
+2. The `X-PATHAO-Signature` header contains the webhook secret verbatim.
+3. Your endpoint must respond within 10 seconds with an `X-Pathao-Merchant-Webhook-Integration-Secret` header whose value equals the webhook secret.
 4. The HTTP status code should be 2xx.
+
+> [!WARNING]
+> **Webhooks are not authenticated.** The webhook secret is one fixed value shared by every merchant (it is hardcoded in Pathao's own open-source WooCommerce plugin), so anyone can send a request that looks like it came from Pathao. Never apply status, fee or COD amounts straight from a payload. Use the webhook only as a signal: look up your own order by `consignment_id`, then fetch the real state with `getOrderStatus()` and act on that. An unguessable callback URL (e.g. `/webhooks/pathao/<random-token>`) cuts down junk traffic, since the URL is the one thing only you and Pathao know.
 
 ### Setup requirements
 
@@ -628,7 +637,7 @@ Open an issue on [GitHub](https://github.com/sifat07/pathao-merchant-sdk/issues)
 - Factory methods: `fromEnv()`, `fromConfig()`, `sandbox()`, `production()`
 - Debug logging (`debug` option) — `Authorization` header redacted
 - Configurable circuit breaker (throws `PathaoApiError` code 503 when open)
-- Retry logic: 429 reads `Retry-After`, 5xx exponential backoff (max 2 retries)
+- Retry logic: 429 retried only when the server sends `Retry-After`; 5xx exponential backoff (max 2 retries)
 - Deferred config validation — constructor never throws
 - HTTPS enforcement in `validateConfiguration()`
 - `User-Agent: pathao-merchant-sdk node/<version>` header

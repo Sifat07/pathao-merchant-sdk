@@ -605,6 +605,22 @@ describe("PathaoApiService", () => {
       expect(result).toEqual(mockResolvedResponse);
     });
 
+    // Pathao's gateway allows 60 requests per rolling minute and its 429 has
+    // no Retry-After. A blind 1s retry always failed and just burned budget;
+    // the caller gets the 429 and decides when to try again.
+    it("does not retry a 429 that has no Retry-After", async () => {
+      mock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
+      mock.onGet("/aladdin/api/v1/city-list").replyOnce(200, { data: [] });
+
+      const err = (await pathaoService.getCities().catch((e) => e)) as PathaoApiError;
+
+      expect(err).toBeInstanceOf(PathaoApiError);
+      expect(err.status).toBe(429);
+      expect(
+        mock.history.get.filter((r) => r.url === "/aladdin/api/v1/city-list"),
+      ).toHaveLength(1);
+    });
+
     it("retries up to 2 times on 5xx errors with backoff", async () => {
       mock.onGet("/aladdin/api/v1/city-list").replyOnce(503);
       mock.onGet("/aladdin/api/v1/city-list").replyOnce(503);
@@ -647,6 +663,44 @@ describe("PathaoApiService", () => {
       const err = (await svc.getCities().catch((e) => e)) as PathaoApiError;
       expect(err).toBeInstanceOf(PathaoApiError);
       expect(err.code).toBe(503);
+      innerMock.restore();
+    });
+  });
+
+  describe("circuit breaker and rate limits", () => {
+    // Rate limiting is not an outage: tripping the breaker on 429s locked out
+    // every call (webhooks included) for a minute, reported as "authentication
+    // failures", and re-tripped each time the window reset.
+    it("does not open on 429 responses", async () => {
+      const svc = new PathaoApiService(mockConfig, {
+        circuitBreaker: { threshold: 2, timeout: 60000 },
+      });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
+      innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
+      innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
+      innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(200, { data: [] });
+
+      for (let i = 0; i < 3; i++) {
+        await expect(svc.getCities()).rejects.toBeInstanceOf(PathaoApiError);
+      }
+      await expect(svc.getCities()).resolves.toEqual({ data: [] });
+      innerMock.restore();
+    });
+
+    it("says why it is open instead of blaming authentication", async () => {
+      const svc = new PathaoApiService(mockConfig, {
+        circuitBreaker: { threshold: 1, timeout: 60000 },
+      });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(500, {});
+
+      await expect(svc.getCities()).rejects.toBeInstanceOf(PathaoApiError);
+      const err = (await svc.getCities().catch((e) => e)) as PathaoApiError;
+      expect(err.message).toMatch(/circuit breaker is open/i);
+      expect(err.message).not.toMatch(/too many authentication failures/i);
       innerMock.restore();
     });
   });

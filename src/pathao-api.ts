@@ -190,12 +190,22 @@ export class PathaoApiService {
           }
         }
 
-        // Respect Retry-After on 429 (rate limit), retry once
-        if (error.response?.status === 429 && error.config && !error.config._rateLimitRetry) {
+        // Pathao's gateway allows 60 requests per rolling minute and its 429
+        // carries no Retry-After, so a blind short retry always fails. Retry
+        // once only when the server says how long to wait; otherwise hand the
+        // 429 to the caller.
+        const retryAfterSeconds = parseInt(
+          (error.response?.headers?.['retry-after'] as string | undefined) ?? '',
+          10,
+        );
+        if (
+          error.response?.status === 429 &&
+          error.config &&
+          !error.config._rateLimitRetry &&
+          retryAfterSeconds > 0
+        ) {
           error.config._rateLimitRetry = true;
-          const retryAfterHeader = error.response.headers['retry-after'] as string | undefined;
-          const delayMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : 1000;
-          await this.delay(delayMs);
+          await this.delay(retryAfterSeconds * 1000);
           return this.pathaoClient.request(error.config);
         }
 
@@ -210,9 +220,11 @@ export class PathaoApiService {
           }
         }
 
-        // Handle circuit breaker for network, 5xx, or specific auth/rate-limit failures
-        const isUserError = status !== undefined && status >= 400 && status < 500 && status !== 401 && status !== 429;
-        if (!isUserError) {
+        // Trip the circuit breaker on outages (network, 5xx) and auth failures.
+        // A 429 is not an outage: counting it locked out every call for the
+        // breaker timeout and re-tripped each time the rate window reset.
+        const tripsBreaker = status === undefined || status >= 500 || status === 401;
+        if (tripsBreaker) {
           this.handleCircuitBreaker();
         }
         return Promise.reject(error);
@@ -270,7 +282,7 @@ export class PathaoApiService {
         this.circuitBreaker.failures = 0;
       } else {
         throw new PathaoApiError(
-          'Circuit breaker is open. Too many authentication failures. Try again later.',
+          'Circuit breaker is open after repeated network, server or authentication failures. Try again later.',
           { code: 503 },
         );
       }

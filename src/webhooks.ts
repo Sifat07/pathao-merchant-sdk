@@ -4,9 +4,12 @@
  * Handles incoming webhook events from Pathao.
  *
  * IMPORTANT INTEGRATION DETAILS:
- * - Pathao does NOT sign incoming requests.
- * - Instead, Pathao requires you to prove ownership by echoing your webhook secret
- *   in the \`X-Pathao-Merchant-Webhook-Integration-Secret\` header of EVERY response.
+ * - Pathao does NOT sign incoming requests. Its webhook secret is one fixed value
+ *   shared by all merchants and published in Pathao's own open-source plugin, so
+ *   it proves nothing about who sent a request. Treat every payload as untrusted:
+ *   re-fetch the order with \`PathaoApiService.getOrderStatus()\` before acting on it.
+ * - Pathao requires you to echo that secret in the
+ *   \`X-Pathao-Merchant-Webhook-Integration-Secret\` header of EVERY response.
  * - This SDK automatically handles the \`webhook_integration\` handshake event, which
  *   expects a 202 status code and the secret header.
  *
