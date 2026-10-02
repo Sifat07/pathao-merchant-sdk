@@ -193,7 +193,7 @@ const order = await pathao.createOrder({
   store_id: 12345, // Required — your store ID
   merchant_order_id: "ORDER-001", // Optional — your internal tracking ID
   recipient_name: "John Doe", // Required — 3–100 characters
-  recipient_phone: "01712345678", // Required — 11 digits, starts with 01
+  recipient_phone: "01712345678", // Required — BD mobile; +880… / dashes are normalised before sending
   recipient_secondary_phone: "01812345678", // Optional
   recipient_address: "House 10, Road 5, Dhanmondi, Dhaka", // Required — 10–220 chars
   recipient_city: 1, // Optional — auto-detected if omitted
@@ -338,7 +338,8 @@ All helpers are static and can be used before constructing the SDK:
 ```typescript
 import { PathaoApiService } from "pathao-merchant-sdk";
 
-PathaoApiService.validatePhoneNumber("01712345678"); // true  — 11 digits, starts with 01
+PathaoApiService.validatePhoneNumber("+8801712345678"); // true  — BD mobile, 013–019
+PathaoApiService.normalizePhoneNumber("+880 1712-345678"); // "01712345678" (null if invalid)
 PathaoApiService.validateContactNumber("01712345678"); // true  — same rules
 PathaoApiService.validateAddress("House 10, Road 5, Dhanmondi, Dhaka"); // true — 10–220 chars
 PathaoApiService.validateStoreAddress("House 10, Road 5, Dhanmondi"); // true — 15–120 chars
@@ -346,6 +347,8 @@ PathaoApiService.validateWeight(0.5); // true  — 0.5–10 kg
 PathaoApiService.validateRecipientName("John Doe"); // true  — 3–100 chars
 PathaoApiService.validateStoreName("My Store"); // true  — 3–50 chars
 ```
+
+`createOrder` and `createBulkOrder` run the phone, name, address and weight checks before sending (a bulk failure names the index, e.g. `orders[3]: …`), and send the normalised phone numbers.
 
 ---
 

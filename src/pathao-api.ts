@@ -456,16 +456,9 @@ export class PathaoApiService {
     orderData: PathaoOrderRequest,
   ): Promise<PathaoOrderResponse> {
     try {
-      if (!PathaoApiService.validatePhoneNumber(orderData.recipient_phone)) {
-        throw new PathaoApiError('Validation failed: Invalid recipient_phone format', { code: 400 });
-      }
-      if (!PathaoApiService.validateWeight(orderData.item_weight)) {
-        throw new PathaoApiError('Validation failed: Invalid item_weight (must be 0.5 to 10)', { code: 400 });
-      }
-
       const response = await this.pathaoClient.post<PathaoOrderResponse>(
         '/aladdin/api/v1/orders',
-        orderData,
+        PathaoApiService.prepareOrder(orderData),
       );
       return response.data;
     } catch (error: unknown) {
@@ -593,28 +586,69 @@ export class PathaoApiService {
     orders: PathaoOrderRequest[],
   ): Promise<PathaoBulkOrderResponse> {
     try {
+      const prepared = orders.map((order, i) => PathaoApiService.prepareOrder(order, `orders[${i}]: `));
       const response = await this.pathaoClient.post<PathaoBulkOrderResponse>(
-        '/aladdin/api/v1/orders/bulk', { orders });
+        '/aladdin/api/v1/orders/bulk', { orders: prepared });
       return response.data;
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to create bulk Pathao orders');
     }
   }
 
+  // Validates an order and returns it with phones normalised to 01XXXXXXXXX,
+  // so local checks catch what Pathao would reject with a 422 and what is
+  // sent is what was validated.
+  private static prepareOrder(order: PathaoOrderRequest, prefix = ''): PathaoOrderRequest {
+    const fail = (message: string): never => {
+      throw new PathaoApiError(`Validation failed: ${prefix}${message}`, { code: 400 });
+    };
+    const phone = PathaoApiService.normalizePhoneNumber(order.recipient_phone ?? '');
+    if (!phone) fail('Invalid recipient_phone format');
+    let secondary: string | null = null;
+    if (order.recipient_secondary_phone) {
+      secondary = PathaoApiService.normalizePhoneNumber(order.recipient_secondary_phone);
+      if (!secondary) fail('Invalid recipient_secondary_phone format');
+    }
+    if (!PathaoApiService.validateRecipientName(order.recipient_name ?? '')) {
+      fail('Invalid recipient_name (must be 3 to 100 characters)');
+    }
+    if (!PathaoApiService.validateAddress(order.recipient_address ?? '')) {
+      fail('Invalid recipient_address (must be 10 to 220 characters)');
+    }
+    if (!PathaoApiService.validateWeight(order.item_weight)) {
+      fail('Invalid item_weight (must be 0.5 to 10)');
+    }
+    return {
+      ...order,
+      recipient_phone: phone as string,
+      ...(secondary ? { recipient_secondary_phone: secondary } : {}),
+    };
+  }
+
+  /**
+   * Normalise a Bangladeshi mobile number to 01XXXXXXXXX. Accepts +8801…,
+   * 8801… and 01…, with spaces, dashes, dots or parentheses. Returns null for
+   * anything that isn't a BD mobile number (operator prefixes 013–019).
+   */
+  static normalizePhoneNumber(phone: string): string | null {
+    const digits = phone.replace(/[\s\-().]/g, '').replace(/^\+/, '');
+    const local = digits.startsWith('880') ? `0${digits.slice(3)}` : digits;
+    return /^01[3-9]\d{8}$/.test(local) ? local : null;
+  }
+
   // Helper method to validate phone number
   static validatePhoneNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
-    return cleanPhone.length === 11 && cleanPhone.startsWith('01');
+    return PathaoApiService.normalizePhoneNumber(phone) !== null;
   }
 
   // Helper method to format phone number
   static formatPhoneNumber(phone: string): string {
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 11 && cleanPhone.startsWith('01')) {
-      return cleanPhone;
+    const normalized = PathaoApiService.normalizePhoneNumber(phone);
+    if (normalized) {
+      return normalized;
     }
     throw new Error(
-      'Invalid phone number format. Must be 11 digits starting with 01',
+      'Invalid phone number format. Must be a Bangladeshi mobile number (01XXXXXXXXX or +8801XXXXXXXXX)',
     );
   }
 
@@ -649,8 +683,7 @@ export class PathaoApiService {
 
   // Helper method to validate contact number
   static validateContactNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
-    return cleanPhone.length === 11 && cleanPhone.startsWith('01');
+    return PathaoApiService.normalizePhoneNumber(phone) !== null;
   }
 
   // Helper method to validate store address

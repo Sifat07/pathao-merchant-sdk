@@ -162,6 +162,14 @@ describe("PathaoApiService", () => {
       it("rejects numbers with wrong length", () => {
         expect(PathaoApiService.validatePhoneNumber("0171234567")).toBe(false);
       });
+      it("accepts E.164 and 880-prefixed numbers", () => {
+        expect(PathaoApiService.validatePhoneNumber("+8801712345678")).toBe(true);
+        expect(PathaoApiService.validatePhoneNumber("8801712345678")).toBe(true);
+      });
+      it("rejects unassigned operator prefixes and letters", () => {
+        expect(PathaoApiService.validatePhoneNumber("01212345678")).toBe(false);
+        expect(PathaoApiService.validatePhoneNumber("0171234567a")).toBe(false);
+      });
     });
 
     describe("formatPhoneNumber", () => {
@@ -170,6 +178,11 @@ describe("PathaoApiService", () => {
           "01712345678",
         );
         expect(PathaoApiService.formatPhoneNumber("01712345678")).toBe(
+          "01712345678",
+        );
+      });
+      it("normalises +880 numbers with spaces", () => {
+        expect(PathaoApiService.formatPhoneNumber("+880 1712-345678")).toBe(
           "01712345678",
         );
       });
@@ -321,6 +334,35 @@ describe("PathaoApiService", () => {
       ).rejects.toBeInstanceOf(PathaoApiError);
     });
 
+    it("sends normalised phone numbers, not the raw input", async () => {
+      mock.onPost("/aladdin/api/v1/orders").reply(200, { data: {} });
+      await pathaoService.createOrder({
+        ...orderData,
+        recipient_phone: "+880 1712-345678",
+        recipient_secondary_phone: "017-1234-5679",
+      });
+      const sent = JSON.parse(
+        mock.history.post.find((r) => r.url === "/aladdin/api/v1/orders")!.data,
+      );
+      expect(sent.recipient_phone).toBe("01712345678");
+      expect(sent.recipient_secondary_phone).toBe("01712345679");
+    });
+
+    it("validates the secondary phone, name and address before sending", async () => {
+      for (const bad of [
+        { recipient_secondary_phone: "12345" },
+        { recipient_name: "Jo" },
+        { recipient_address: "short" },
+      ]) {
+        await expect(
+          pathaoService.createOrder({ ...orderData, ...bad }),
+        ).rejects.toBeInstanceOf(PathaoApiError);
+      }
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders"),
+      ).toHaveLength(0);
+    });
+
     it("throws PathaoApiError for invalid weight", async () => {
       await expect(
         pathaoService.createOrder({ ...orderData, item_weight: 0.1 }),
@@ -352,6 +394,26 @@ describe("PathaoApiService", () => {
       mock.onPost("/aladdin/api/v1/orders/bulk").reply(202, mockResponse);
       const result = await pathaoService.createBulkOrder(orders);
       expect(result).toEqual(mockResponse);
+    });
+
+    it("reports which order failed validation and sends nothing", async () => {
+      const good = {
+        store_id: 123,
+        recipient_name: "John",
+        recipient_phone: "01712345678",
+        recipient_address: "123 Main Street, Dhanmondi",
+        delivery_type: DeliveryType.NORMAL,
+        item_type: ItemType.PARCEL,
+        item_quantity: 1,
+        item_weight: 1.0,
+        amount_to_collect: 500,
+      };
+      const err = (await pathaoService
+        .createBulkOrder([good, { ...good, recipient_phone: "123" }])
+        .catch((e) => e)) as PathaoApiError;
+      expect(err).toBeInstanceOf(PathaoApiError);
+      expect(err.message).toContain("orders[1]: Invalid recipient_phone");
+      expect(mock.history.post.filter((r) => r.url?.includes("/bulk"))).toHaveLength(0);
     });
   });
 
