@@ -387,7 +387,7 @@ Branch on `err.kind` instead of matching message text. `err.retryable` is `true`
 | `validation`   | Rejected by the SDK before sending, or HTTP 400/422         |
 | `config`       | Missing/invalid `baseURL` or credentials                    |
 | `auth`         | HTTP 401                                                    |
-| `forbidden`    | HTTP 403                                                    |
+| `forbidden`    | HTTP 403, or 402 (unpaid dues block new orders)             |
 | `not_found`    | HTTP 404                                                    |
 | `rate_limited` | HTTP 429                                                    |
 | `unavailable`  | 5xx, timeout, network failure, circuit breaker open         |

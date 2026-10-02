@@ -73,6 +73,8 @@ describe('PathaoApiError kind', () => {
     [404, 'not_found', false],
     [429, 'rate_limited', true],
     [403, 'forbidden', false],
+    // Pathao refuses new orders until dues are paid
+    [402, 'forbidden', false],
   ])('HTTP %i -> %s (retryable %s)', async (status, kind, retryable) => {
     const err = await errorFor((m) => m.onGet(/info/).reply(status, {}));
     expect(err.kind).toBe(kind);
