@@ -869,6 +869,21 @@ describe("PathaoApiService", () => {
     });
   });
 
+  describe("minRequestIntervalMs", () => {
+    it("spaces concurrent requests, token grant included", async () => {
+      const svc = new PathaoApiService(mockConfig, { minRequestIntervalMs: 50 });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+
+      const start = Date.now();
+      await Promise.all([svc.getCities(), svc.getCities(), svc.getCities()]);
+      // 3 GETs + 1 token grant = 4 requests, 3 gaps of 50ms
+      expect(Date.now() - start).toBeGreaterThanOrEqual(140);
+      innerMock.restore();
+    });
+  });
+
   describe("redirects", () => {
     // A 307/308 re-sends the issue-token body (client secret, password).
     it("never follows redirects", () => {

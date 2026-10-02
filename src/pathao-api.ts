@@ -130,6 +130,19 @@ export interface CircuitBreakerConfig {
   timeout?: number;    // Default: 60000ms
 }
 
+export interface PathaoClientOptions {
+  /** Log requests and responses (tokens and Authorization redacted). */
+  debug?: boolean;
+  circuitBreaker?: CircuitBreakerConfig;
+  /**
+   * Minimum gap between requests from this instance, in ms. Requests queue
+   * instead of tripping Pathao's 60/min limit (PATHAO_RATE_LIMIT_PER_MINUTE).
+   * 1500 keeps one instance near 40/min, leaving headroom for other callers
+   * sharing the credentials. Default 0 (no spacing).
+   */
+  minRequestIntervalMs?: number;
+}
+
 export class PathaoApiService {
   private pathaoClient: AxiosInstance;
   private accessToken: string | null = null;
@@ -140,6 +153,8 @@ export class PathaoApiService {
   private authPromise: Promise<void> | null = null;
   private hasValidated: boolean = false;
   private debug: boolean = false;
+  private minRequestIntervalMs: number;
+  private nextRequestAt = 0;
   private circuitBreaker: {
     failures: number;
     lastFailureTime: number;
@@ -148,7 +163,7 @@ export class PathaoApiService {
     isOpen: boolean;
   };
 
-  constructor(config: PathaoConfig, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }) {
+  constructor(config: PathaoConfig, options?: PathaoClientOptions) {
     // Explicit config is read as given, never topped up from process.env: in
     // a multi-tenant app a blank field would otherwise pick up the platform's
     // own Pathao account. Env-based setup is fromEnv().
@@ -162,6 +177,7 @@ export class PathaoApiService {
     };
 
     this.debug = options?.debug || false;
+    this.minRequestIntervalMs = Math.max(0, options?.minRequestIntervalMs ?? 0);
     this.circuitBreaker = {
       failures: 0,
       lastFailureTime: 0,
@@ -186,6 +202,10 @@ export class PathaoApiService {
 
     // Add request interceptor for authentication
     this.pathaoClient.interceptors.request.use(async (config) => {
+      // Every request counts against Pathao's limit, token grants and
+      // retries included, so space them all.
+      await this.waitForRequestSlot();
+
       // Skip auth for token requests to prevent infinite loops
       if (config.url?.includes('/issue-token')) {
         return config;
@@ -483,6 +503,16 @@ export class PathaoApiService {
     }
   }
 
+  // Reserves the next free slot synchronously, then waits for it, so
+  // concurrent callers queue in call order.
+  private async waitForRequestSlot(): Promise<void> {
+    if (this.minRequestIntervalMs <= 0) return;
+    const now = Date.now();
+    const at = Math.max(now, this.nextRequestAt);
+    this.nextRequestAt = at + this.minRequestIntervalMs;
+    if (at > now) await this.delay(at - now);
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
@@ -741,7 +771,7 @@ export class PathaoApiService {
   }
 
   // Static factory method to create instance from environment variables
-  static fromEnv(options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static fromEnv(options?: PathaoClientOptions): PathaoApiService {
     const config: PathaoConfig = {
       clientId: process.env.PATHAO_CLIENT_ID || '',
       clientSecret: process.env.PATHAO_CLIENT_SECRET || '',
@@ -759,13 +789,13 @@ export class PathaoApiService {
   // Static factory method to create instance from configuration object
   static fromConfig(
     config: PathaoConfig,
-    options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig },
+    options?: PathaoClientOptions,
   ): PathaoApiService {
     return new PathaoApiService(config, options);
   }
 
   // Named constructor for sandbox environment
-  static sandbox(credentials: Omit<PathaoConfig, 'baseURL'>, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static sandbox(credentials: Omit<PathaoConfig, 'baseURL'>, options?: PathaoClientOptions): PathaoApiService {
     return new PathaoApiService(
       { ...credentials, baseURL: 'https://courier-api-sandbox.pathao.com' },
       options,
@@ -773,7 +803,7 @@ export class PathaoApiService {
   }
 
   // Named constructor for production environment
-  static production(credentials: Omit<PathaoConfig, 'baseURL'>, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static production(credentials: Omit<PathaoConfig, 'baseURL'>, options?: PathaoClientOptions): PathaoApiService {
     return new PathaoApiService(
       { ...credentials, baseURL: 'https://api-hermes.pathao.com' },
       options,

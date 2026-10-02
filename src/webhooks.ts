@@ -112,6 +112,12 @@ export interface BaseWebhookPayload {
 /** Fields shared by all order-related events */
 export interface OrderWebhookPayload extends BaseWebhookPayload {
   consignment_id: string;
+  /**
+   * Status label, when Pathao includes one (its own WooCommerce plugin reads
+   * this before falling back to the event name). Display-style, e.g.
+   * "Delivered"; pass it to \`toLifecycleStatus\`.
+   */
+  order_status?: string;
   merchant_order_id?: string;
   store_id: number;
   delivery_fee?: number;
@@ -220,6 +226,12 @@ export interface OrderExchangedPayload extends OrderWebhookPayload {
 /** Shared fields for the three return-journey events */
 export interface ReturnOrderWebhookPayload extends BaseWebhookPayload {
   consignment_id: string;
+  /**
+   * Status label, when Pathao includes one (its own WooCommerce plugin reads
+   * this before falling back to the event name). Display-style, e.g.
+   * "Delivered"; pass it to \`toLifecycleStatus\`.
+   */
+  order_status?: string;
   return_consignment_id: string;
   merchant_order_id?: string;
   store_id: number;

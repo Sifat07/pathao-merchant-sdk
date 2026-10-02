@@ -27,11 +27,14 @@ export const PATHAO_RATE_LIMIT_PER_MINUTE = 60;
 /** getOrderStatus only finds orders for roughly this many days after creation. */
 export const PATHAO_STATUS_RETENTION_DAYS = 90;
 
-// Keys are webhook event names without "order.", which is also the
-// kebab-cased form of the status slugs seen so far.
+// Keys are webhook event names without "order.", plus the kebab-cased status
+// labels Pathao uses elsewhere: order_status_slug values seen in production
+// ("Pending", "In Transit", "Return") and the labels in Pathao's own
+// WooCommerce plugin ("Order_Created", "Return", "exchange").
 const LIFECYCLE: Readonly<Record<string, PathaoLifecycleStatus>> = {
   'pending': 'created',
   'created': 'created',
+  'order-created': 'created',
   'pickup-requested': 'created',
   'assigned-for-pickup': 'created',
   'picked': 'picked_up',
@@ -45,11 +48,14 @@ const LIFECYCLE: Readonly<Record<string, PathaoLifecycleStatus>> = {
   'partial-delivery': 'partial',
   'delivery-failed': 'on_hold',
   'on-hold': 'on_hold',
+  // Marked for return; the parcel only comes back with returned-to-merchant.
   'returned': 'returning',
+  'return': 'returning',
   'return-id-created': 'returning',
   'return-in-transit': 'returning',
   'paid-return': 'returning',
   'exchanged': 'returning',
+  'exchange': 'returning',
   'returned-to-merchant': 'returned',
 };
 

@@ -16,6 +16,20 @@ describe('toLifecycleStatus', () => {
     expect(toLifecycleStatus('order.assigned-for-delivery')).toBe('out_for_delivery');
   });
 
+  // Real values: order_status_slug from production, labels from Pathao's
+  // WooCommerce plugin.
+  it('maps the status labels Pathao actually sends', () => {
+    expect(toLifecycleStatus('In Transit')).toBe('in_transit');
+    expect(toLifecycleStatus('Delivered')).toBe('delivered');
+    expect(toLifecycleStatus('Return')).toBe('returning');
+    expect(toLifecycleStatus('Order_Created')).toBe('created');
+    expect(toLifecycleStatus('At_the_Sorting_HUB')).toBe('in_transit');
+    expect(toLifecycleStatus('Assigned_for_Delivery')).toBe('out_for_delivery');
+    expect(toLifecycleStatus('paid_return')).toBe('returning');
+    expect(toLifecycleStatus('exchange')).toBe('returning');
+    expect(toLifecycleStatus('Payment_Invoice')).toBe('unknown');
+  });
+
   // The parcel isn't back yet when the return ID is created.
   it('treats return-id-created as returning, returned-to-merchant as returned', () => {
     expect(toLifecycleStatus('order.return-id-created')).toBe('returning');

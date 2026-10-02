@@ -177,6 +177,7 @@ const pathao = new PathaoApiService(config, {
     threshold: 5, // Failures before opening circuit (default: 5)
     timeout: 60_000, // Ms before attempting to close circuit (default: 60000)
   },
+  minRequestIntervalMs: 0, // Min gap between requests, queued (default: 0, off)
 });
 ```
 
@@ -406,7 +407,7 @@ A retryable error on `createOrder` / `createBulkOrder` may still have booked the
 
 Pathao doesn't document its limits. Measured against its gateway (Sep 2026): **60 requests per rolling 60 seconds**, and the `429` carries **no `Retry-After` header**. The SDK therefore does not retry a `429` unless the server sends `Retry-After`; it throws `PathaoApiError` with `status: 429` so you can back off. 429s never open the circuit breaker.
 
-For bulk work (e.g. polling `getOrderStatus` for many orders) space calls out yourself — about one request every 1.5 s keeps you near 40/min and leaves headroom for webhooks and other calls sharing the same credentials.
+For bulk work (e.g. polling `getOrderStatus` for many orders) pass `minRequestIntervalMs: 1500`. The client then queues its requests (token grants and retries included) one every 1.5 s, about 40/min, leaving headroom for webhooks and other callers sharing the same credentials. Spacing is per instance: share one instance across the process.
 
 Both numbers are exported: `PATHAO_RATE_LIMIT_PER_MINUTE` (60) and `PATHAO_STATUS_RETENTION_DAYS` (90, roughly how long `getOrderStatus` finds an order).
 
@@ -416,7 +417,7 @@ The SDK retries a `5xx` up to twice, but only for requests that are safe to repe
 
 ### Order lifecycle
 
-Webhook events and `order_status_slug` describe the same journey. `toLifecycleStatus` maps either one (any spelling: `order.pickup-requested`, `Pickup Requested`, `pickup_requested`) to one of `created`, `picked_up`, `in_transit`, `out_for_delivery`, `delivered`, `partial`, `on_hold`, `returning`, `returned`, `cancelled`, or `unknown`.
+Webhook events and `order_status_slug` describe the same journey. Despite its name, `order_status_slug` is a display label (`"Pending"`, `"In Transit"`, `"Return"`), and Pathao's own plugin spells the same states differently (`Pickup_Requested`, `At_the_Sorting_HUB`), so the SDK doesn't type it. `toLifecycleStatus` maps any of these spellings, or a webhook event (`order.pickup-requested`), to one of `created`, `picked_up`, `in_transit`, `out_for_delivery`, `delivered`, `partial`, `on_hold`, `returning`, `returned`, `cancelled`, or `unknown`.
 
 ```typescript
 import { toLifecycleStatus, isFinalLifecycleStatus } from "pathao-merchant-sdk"; // also exported from /webhooks
