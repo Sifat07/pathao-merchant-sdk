@@ -124,6 +124,10 @@ export class PathaoApiService {
     this.pathaoClient = axios.create({
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       timeout: this.config.timeout,
+      // Pathao has no reason to redirect, and a 307/308 would re-send the
+      // issue-token body (client secret, password) to wherever it points.
+      // With 0, any 3xx rejects like an error status.
+      maxRedirects: 0,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -165,9 +169,11 @@ export class PathaoApiService {
         this.circuitBreaker.isOpen = false;
 
         if (this.debug) {
+          // Token grants carry access_token / refresh_token; never log them.
+          const isTokenResponse = response.config.url?.includes('/issue-token');
           console.log(`[Pathao SDK] Response ${response.status}`, {
             url: response.config.url,
-            data: response.data,
+            data: isTokenResponse ? '[REDACTED]' : response.data,
           });
         }
 

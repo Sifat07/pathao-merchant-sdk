@@ -730,9 +730,19 @@ describe("PathaoApiService", () => {
       expect(allLogText).toContain("[REDACTED]");
       // The raw bearer token must NOT appear in the Authorization header value
       expect(allLogText).not.toContain("Bearer mock-access-token");
+      // Token grant responses must not leak either token
+      expect(allLogText).not.toContain("mock-access-token");
+      expect(allLogText).not.toContain("mock-refresh-token");
 
       jest.restoreAllMocks();
       innerMock.restore();
+    });
+  });
+
+  describe("redirects", () => {
+    // A 307/308 re-sends the issue-token body (client secret, password).
+    it("never follows redirects", () => {
+      expect((pathaoService as any).pathaoClient.defaults.maxRedirects).toBe(0);
     });
   });
 
