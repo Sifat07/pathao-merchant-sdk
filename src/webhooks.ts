@@ -273,6 +273,18 @@ export type PathaoWebhookPayload =
   | StoreCreatedPayload
   | StoreUpdatedPayload;
 
+/**
+ * A payload whose \`event\` isn't one of \`PathaoWebhookEvent\`. Emitted as
+ * \`'unknown'\`, never under its own name, so a sender can't fire reserved
+ * EventEmitter events such as \`'error'\` or \`'newListener'\`.
+ */
+export interface UnknownWebhookPayload {
+  event: string;
+  [key: string]: unknown;
+}
+
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.values(PathaoWebhookEvent));
+
 /** Maps each \`PathaoWebhookEvent\` to its specific payload type */
 export interface WebhookEventPayloadMap {
   [PathaoWebhookEvent.WEBHOOK_INTEGRATION]: WebhookIntegrationPayload;
@@ -335,7 +347,11 @@ export function constructEvent(
     }
   }
 
-  if (!parsed || typeof parsed !== 'object' || !('event' in parsed)) {
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    typeof (parsed as { event?: unknown }).event !== 'string'
+  ) {
     throw new PathaoWebhookError(
       "Webhook payload is missing the required 'event' field.",
     );
@@ -391,6 +407,8 @@ export class PathaoWebhookHandler extends EventEmitter {
   ): this;
   /** Fires for every successfully parsed event regardless of type. */
   on(event: 'webhook', listener: (payload: PathaoWebhookPayload) => void): this;
+  /** Fires for payloads whose \`event\` isn't a known \`PathaoWebhookEvent\`. */
+  on(event: 'unknown', listener: (payload: UnknownWebhookPayload) => void): this;
   /** Fires when parsing fails. */
   on(event: 'error', listener: (error: PathaoWebhookError) => void): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -406,6 +424,10 @@ export class PathaoWebhookHandler extends EventEmitter {
   once(
     event: 'webhook',
     listener: (payload: PathaoWebhookPayload) => void,
+  ): this;
+  once(
+    event: 'unknown',
+    listener: (payload: UnknownWebhookPayload) => void,
   ): this;
   once(event: 'error', listener: (error: PathaoWebhookError) => void): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -441,7 +463,9 @@ export class PathaoWebhookHandler extends EventEmitter {
       throw webhookErr;
     }
 
-    this.emit(payload.event, payload);
+    // The body is unauthenticated, so its event name must never pick an
+    // arbitrary EventEmitter event ('error', 'newListener', 'webhook', ...).
+    this.emit(KNOWN_EVENTS.has(payload.event) ? payload.event : 'unknown', payload);
     this.emit('webhook', payload);
 
     return payload;
