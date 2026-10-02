@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.2...pathao-merchant-sdk-v3.0.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* new PathaoApiService(config) no longer reads PATHAO_* environment variables for missing fields or PATHAO_TIMEOUT. Pass every field explicitly, or use PathaoApiService.fromEnv().
+
+### Bug Fixes
+
+* close [#12](https://github.com/Sifat07/pathao-merchant-sdk/issues/12)–[#20](https://github.com/Sifat07/pathao-merchant-sdk/issues/20) (security, retries, webhooks, phones, explicit config, types, CI) ([#21](https://github.com/Sifat07/pathao-merchant-sdk/issues/21)) ([9702f72](https://github.com/Sifat07/pathao-merchant-sdk/commit/9702f724e8bc5fced2ec644d746d29b6242b0baf))
+
 ## [2.3.2](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.1...pathao-merchant-sdk-v2.3.2) (2026-09-23)
 
 
