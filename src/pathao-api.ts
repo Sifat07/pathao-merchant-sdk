@@ -56,7 +56,10 @@ export type PathaoErrorKind =
   | 'config'
   /** Rejected credentials or token (HTTP 401). */
   | 'auth'
-  /** HTTP 403. */
+  /**
+   * The account may not do this right now: HTTP 403, or 402 when Pathao
+   * refuses new orders until the merchant pays outstanding dues.
+   */
   | 'forbidden'
   /** Unknown consignment, store or resource (HTTP 404). */
   | 'not_found'
@@ -70,7 +73,7 @@ export type PathaoErrorKind =
 function kindForStatus(status: number | undefined): PathaoErrorKind {
   if (status === 400 || status === 422) return 'validation';
   if (status === 401) return 'auth';
-  if (status === 403) return 'forbidden';
+  if (status === 402 || status === 403) return 'forbidden';
   if (status === 404) return 'not_found';
   if (status === 429) return 'rate_limited';
   if (status !== undefined && status >= 500) return 'unavailable';
