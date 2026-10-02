@@ -63,11 +63,12 @@ const pathao = new PathaoApiService(
     baseURL: process.env.PATHAO_BASE_URL || 'https://api-hermes.pathao.com',
   },
   {
-    debug: true, // Log all requests/responses
+    debug: true, // Log all requests/responses (token responses redacted)
     circuitBreaker: {
       threshold: 8,
       timeout: 90000,
     },
+    minRequestIntervalMs: 1500, // Queue requests ~40/min, under Pathao's 60/min limit
   },
 );
 
@@ -103,11 +104,15 @@ async function exampleErrorHandling() {
         validation: error.validation, // Validation errors
       });
 
-      // Handle specific error cases
-      if (error.status === 422) {
-        console.error('Validation failed:', error.validation);
-      } else if (error.status === 401) {
+      // Branch on kind, not message text
+      if (error.kind === 'validation') {
+        console.error('Validation failed:', error.errors ?? error.validation ?? error.message);
+      } else if (error.kind === 'auth') {
         console.error('Authentication failed:', error.message);
+      } else if (error.retryable) {
+        // A 5xx / timeout on a create may hide a booking that went through:
+        // look the order up before creating it again.
+        console.error('Transient failure, check before retrying:', error.message);
       }
     } else {
       console.error('Unexpected error:', error);
@@ -121,7 +126,8 @@ async function exampleErrorHandling() {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function exampleDeferredValidation() {
-  // SDK initializes successfully even without credentials
+  // SDK initializes successfully even without credentials. Blank fields are
+  // never filled from env vars; use PathaoApiService.fromEnv() for that.
   const sdk = new PathaoApiService({
     clientId: '', // Empty!
     clientSecret: '',
@@ -134,8 +140,8 @@ async function exampleDeferredValidation() {
   try {
     await sdk.getStores();
   } catch (error) {
-    if (error instanceof PathaoApiError) {
-      console.error('Configuration missing:', error.validation);
+    if (error instanceof PathaoApiError && error.kind === 'config') {
+      console.error('Configuration missing:', error.message);
     }
   }
 }

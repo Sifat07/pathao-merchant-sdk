@@ -28,6 +28,7 @@ An **unofficial** TypeScript SDK for the [Pathao Courier Merchant API](https://m
 - [Error Handling](#error-handling)
 - [Webhooks](#webhooks)
 - [TypeScript Types](#typescript-types)
+- [Upgrading to 3.0.0](#upgrading-to-300)
 - [Contributing](#contributing)
 - [License](#license)
 - [Changelog](#changelog)
@@ -366,6 +367,7 @@ try {
   const order = await pathao.createOrder(orderData);
 } catch (err) {
   if (err instanceof PathaoApiError) {
+    console.error("Kind:", err.kind, "retryable:", err.retryable); // e.g. "validation", false
     console.error("HTTP status:", err.status); // e.g. 422
     console.error("Pathao code:", err.code); // Pathao internal error code
     console.error("Type:", err.type); // e.g. "ValidationException"
@@ -605,6 +607,9 @@ All payloads also include `updated_at` (MySQL datetime) and `timestamp` (ISO 860
 ```typescript
 import type {
   PathaoConfig,
+  PathaoClientOptions,
+  PathaoErrorKind,
+  PathaoLifecycleStatus,
   PathaoOrderRequest,
   PathaoOrderResponse,
   PathaoStoreRequest,
@@ -621,12 +626,68 @@ import type {
   WebhookEventPayloadMap,
   OrderDeliveredPayload,
   OrderReturnIdCreatedPayload,
+  UnknownWebhookPayload,
   PathaoWebhookEvent,
 } from "pathao-merchant-sdk/webhooks";
 
 // Access a specific payload type via the map
 type PaidPayload = WebhookEventPayloadMap[PathaoWebhookEvent.ORDER_PAID];
 ```
+
+---
+
+## Upgrading to 3.0.0
+
+3.0.0 has **one breaking change**. Most apps need no code changes; check the table below if you catch specific errors or listen for unusual webhook events.
+
+### Required: explicit config no longer reads environment variables
+
+In 2.x, `new PathaoApiService(config)` (and `fromConfig()`, `sandbox()`, `production()`) filled any blank field from `PATHAO_*` environment variables and read `PATHAO_TIMEOUT`. In a multi-tenant app, a tenant with a blank field silently used the platform's own Pathao account. In 3.0.0 those constructors use **exactly** the config you pass. Only `fromEnv()` reads the environment.
+
+**You are affected if** you leave config fields blank or omit them and rely on the environment to fill them in, or set `PATHAO_TIMEOUT` without using `fromEnv()`.
+
+```typescript
+// 2.x — blank fields came from PATHAO_* env vars
+const pathao = new PathaoApiService({ baseURL: "https://api-hermes.pathao.com" } as PathaoConfig);
+const sandbox = PathaoApiService.sandbox({ clientId: "", clientSecret: "", username: "", password: "" });
+
+// 3.0.0 — either read everything from the environment...
+const pathao = PathaoApiService.fromEnv(); // PATHAO_BASE_URL, _CLIENT_ID, _CLIENT_SECRET, _USERNAME, _PASSWORD, _TIMEOUT
+
+// ...or pass every field yourself
+const pathao = new PathaoApiService({
+  baseURL: process.env.PATHAO_BASE_URL!,
+  clientId: process.env.PATHAO_CLIENT_ID!,
+  clientSecret: process.env.PATHAO_CLIENT_SECRET!,
+  username: process.env.PATHAO_USERNAME!,
+  password: process.env.PATHAO_PASSWORD!,
+  timeout: 30_000,
+});
+```
+
+If you already pass every field explicitly, nothing changes. A missing field now fails on the first API call with `PathaoApiError` (`kind: "config"`) instead of quietly using another account.
+
+### Behaviour changes to check
+
+| Change | Affects you if… | What to do |
+| --- | --- | --- |
+| `createOrder`, `createBulkOrder` and `createStore` are no longer auto-retried on `5xx` | You relied on the SDK to retry failed creates | Retry yourself, but look the order up first: a `5xx` may hide a booking that went through. See [Retries](#retries). |
+| `createOrder` / `createBulkOrder` validate the secondary phone, recipient name (3–100) and address (10–220) before sending | You send data Pathao would have rejected with a `422` | Fix the data. The error is `PathaoApiError` with `kind: "validation"`; bulk errors name the order (`orders[2]: …`). |
+| Phone numbers are normalised before sending, and only operator prefixes `013`–`019` are valid | You send `+880…` / `017-…` (now accepted), or `011…` / `012…` (now rejected; BTRC lists these as unused) | Nothing for real customers' numbers |
+| Webhook events not in `PathaoWebhookEvent` are emitted as `'unknown'` | You call `handler.on("some.event")` for a name the SDK doesn't list | Listen on `'unknown'` and check `payload.event`. The `'webhook'` catch-all still fires for every event. |
+| A webhook `event` must be a string | You process malformed payloads | Nothing; they now throw `PathaoWebhookError` |
+| Any `3xx` response is an error (redirects are never followed) | Your `baseURL` points at something that redirects | Use the final URL |
+| Some error messages were reworded (config errors, `formatPhoneNumber`) | You match on `err.message` | Switch to `err.kind` |
+| ESM projects (`moduleResolution: node16`/`nodenext`) get the ESM type declarations | You worked around the old CJS-typed imports | Remove the workaround |
+
+### New in 3.0.0 (optional)
+
+- `err.kind` and `err.retryable` on `PathaoApiError` — see [Error kinds](#error-kinds)
+- `toLifecycleStatus()` / `isFinalLifecycleStatus()` — see [Order lifecycle](#order-lifecycle)
+- `minRequestIntervalMs` option — see [Rate limits](#rate-limits)
+- `PathaoApiService.normalizePhoneNumber()`, `PATHAO_RATE_LIMIT_PER_MINUTE`, `PATHAO_STATUS_RETENTION_DAYS`
+- `order_status` (optional) on order webhook payload types
+- Debug logs no longer include token responses
 
 ---
 
@@ -639,6 +700,8 @@ Contributions are welcome. Please open an issue first for significant changes.
 3. Run `pnpm test` and `pnpm run type-check` before submitting
 
 ## Development
+
+The repo pins pnpm 10 via `packageManager`. Run `corepack enable` once so `pnpm` uses it; pnpm 11+ ignores the `pnpm` settings in `package.json` and `pnpm install --frozen-lockfile` fails.
 
 ```bash
 pnpm install
@@ -659,6 +722,18 @@ Open an issue on [GitHub](https://github.com/sifat07/pathao-merchant-sdk/issues)
 ---
 
 ## Changelog
+
+Full history: [CHANGELOG.md](CHANGELOG.md).
+
+### 3.0.0
+
+- **Breaking:** explicit config no longer falls back to `PATHAO_*` env vars; use `fromEnv()` — see [Upgrading to 3.0.0](#upgrading-to-300)
+- Order and store creation are never auto-retried on `5xx` (prevents duplicate consignments)
+- Debug logs redact token responses; redirects are never followed
+- Webhooks: unknown event names go to `'unknown'`, never to reserved EventEmitter events
+- Phones normalised (`+880…` accepted); orders fully validated before sending
+- `PathaoApiError.kind` / `.retryable`, `toLifecycleStatus()`, `minRequestIntervalMs`, rate/retention constants
+- Correct ESM types; `/webhooks` resolves under `node10`; CI on pnpm 10 and Node 18–24
 
 ### 2.3.0 — 2026-04-16
 

@@ -10,10 +10,9 @@ Thank you for your interest in contributing to the Pathao Merchant SDK! This doc
    git clone https://github.com/YOUR_USERNAME/pathao-merchant-sdk.git
    cd pathao-merchant-sdk
    ```
-3. **Install dependencies**:
+3. **Install dependencies** (the repo pins pnpm 10 via `packageManager`; `corepack enable` makes `pnpm` use it):
    ```bash
-   npm install
-   # or
+   corepack enable
    pnpm install
    ```
 
@@ -37,9 +36,10 @@ git checkout -b fix/your-bug-fix
 ### 3. Run Tests
 
 ```bash
-npm test
-npm run build
-npm run type-check
+pnpm run lint
+pnpm run type-check
+pnpm test
+pnpm run build
 ```
 
 ### 4. Commit Your Changes
@@ -159,8 +159,8 @@ What should happen
 What actually happens
 
 **Environment**
-- SDK Version: 1.2.0
-- Node Version: 18.0.0
+- SDK Version: 3.0.0
+- Node Version: 22.x
 - OS: macOS/Windows/Linux
 ```
 
