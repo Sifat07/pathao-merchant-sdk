@@ -30,7 +30,14 @@
  */
 
 export { PathaoApiService, PathaoApiError } from './pathao-api';
-export type { CircuitBreakerConfig } from './pathao-api';
+export type { CircuitBreakerConfig, PathaoClientOptions, PathaoErrorKind } from './pathao-api';
+export {
+  toLifecycleStatus,
+  isFinalLifecycleStatus,
+  PATHAO_RATE_LIMIT_PER_MINUTE,
+  PATHAO_STATUS_RETENTION_DAYS,
+} from './status';
+export type { PathaoLifecycleStatus } from './status';
 
 export type {
   PathaoConfig,

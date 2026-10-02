@@ -28,6 +28,7 @@ An **unofficial** TypeScript SDK for the [Pathao Courier Merchant API](https://m
 - [Error Handling](#error-handling)
 - [Webhooks](#webhooks)
 - [TypeScript Types](#typescript-types)
+- [Upgrading to 3.0.0](#upgrading-to-300)
 - [Contributing](#contributing)
 - [License](#license)
 - [Changelog](#changelog)
@@ -124,6 +125,8 @@ PATHAO_PASSWORD=your-password
 PATHAO_TIMEOUT=30000
 ```
 
+Only `PathaoApiService.fromEnv()` reads these variables. `new PathaoApiService(config)`, `fromConfig()`, `sandbox()` and `production()` use exactly the config you pass, so a blank field fails validation instead of silently picking up another account's credentials from the environment (important when each tenant brings their own Pathao account).
+
 If you use `dotenv`, load it before initializing the SDK:
 
 ```typescript
@@ -175,6 +178,7 @@ const pathao = new PathaoApiService(config, {
     threshold: 5, // Failures before opening circuit (default: 5)
     timeout: 60_000, // Ms before attempting to close circuit (default: 60000)
   },
+  minRequestIntervalMs: 0, // Min gap between requests, queued (default: 0, off)
 });
 ```
 
@@ -193,7 +197,7 @@ const order = await pathao.createOrder({
   store_id: 12345, // Required — your store ID
   merchant_order_id: "ORDER-001", // Optional — your internal tracking ID
   recipient_name: "John Doe", // Required — 3–100 characters
-  recipient_phone: "01712345678", // Required — 11 digits, starts with 01
+  recipient_phone: "01712345678", // Required — BD mobile; +880… / dashes are normalised before sending
   recipient_secondary_phone: "01812345678", // Optional
   recipient_address: "House 10, Road 5, Dhanmondi, Dhaka", // Required — 10–220 chars
   recipient_city: 1, // Optional — auto-detected if omitted
@@ -338,7 +342,8 @@ All helpers are static and can be used before constructing the SDK:
 ```typescript
 import { PathaoApiService } from "pathao-merchant-sdk";
 
-PathaoApiService.validatePhoneNumber("01712345678"); // true  — 11 digits, starts with 01
+PathaoApiService.validatePhoneNumber("+8801712345678"); // true  — BD mobile, 013–019
+PathaoApiService.normalizePhoneNumber("+880 1712-345678"); // "01712345678" (null if invalid)
 PathaoApiService.validateContactNumber("01712345678"); // true  — same rules
 PathaoApiService.validateAddress("House 10, Road 5, Dhanmondi, Dhaka"); // true — 10–220 chars
 PathaoApiService.validateStoreAddress("House 10, Road 5, Dhanmondi"); // true — 15–120 chars
@@ -346,6 +351,8 @@ PathaoApiService.validateWeight(0.5); // true  — 0.5–10 kg
 PathaoApiService.validateRecipientName("John Doe"); // true  — 3–100 chars
 PathaoApiService.validateStoreName("My Store"); // true  — 3–50 chars
 ```
+
+`createOrder` and `createBulkOrder` run the phone, name, address and weight checks before sending (a bulk failure names the index, e.g. `orders[3]: …`), and send the normalised phone numbers.
 
 ---
 
@@ -360,6 +367,7 @@ try {
   const order = await pathao.createOrder(orderData);
 } catch (err) {
   if (err instanceof PathaoApiError) {
+    console.error("Kind:", err.kind, "retryable:", err.retryable); // e.g. "validation", false
     console.error("HTTP status:", err.status); // e.g. 422
     console.error("Pathao code:", err.code); // Pathao internal error code
     console.error("Type:", err.type); // e.g. "ValidationException"
@@ -369,6 +377,23 @@ try {
   }
 }
 ```
+
+### Error kinds
+
+Branch on `err.kind` instead of matching message text. `err.retryable` is `true` for `unavailable` and `rate_limited`.
+
+| `kind`         | When                                                        |
+| -------------- | ----------------------------------------------------------- |
+| `validation`   | Rejected by the SDK before sending, or HTTP 400/422         |
+| `config`       | Missing/invalid `baseURL` or credentials                    |
+| `auth`         | HTTP 401                                                    |
+| `forbidden`    | HTTP 403                                                    |
+| `not_found`    | HTTP 404                                                    |
+| `rate_limited` | HTTP 429                                                    |
+| `unavailable`  | 5xx, timeout, network failure, circuit breaker open         |
+| `unexpected`   | Anything else; inspect `err.responseData`                   |
+
+A retryable error on `createOrder` / `createBulkOrder` may still have booked the parcel. Look the order up before retrying a create.
 
 ### Common error scenarios
 
@@ -384,7 +409,25 @@ try {
 
 Pathao doesn't document its limits. Measured against its gateway (Sep 2026): **60 requests per rolling 60 seconds**, and the `429` carries **no `Retry-After` header**. The SDK therefore does not retry a `429` unless the server sends `Retry-After`; it throws `PathaoApiError` with `status: 429` so you can back off. 429s never open the circuit breaker.
 
-For bulk work (e.g. polling `getOrderStatus` for many orders) space calls out yourself — about one request every 1.5 s keeps you near 40/min and leaves headroom for webhooks and other calls sharing the same credentials.
+For bulk work (e.g. polling `getOrderStatus` for many orders) pass `minRequestIntervalMs: 1500`. The client then queues its requests (token grants and retries included) one every 1.5 s, about 40/min, leaving headroom for webhooks and other callers sharing the same credentials. Spacing is per instance: share one instance across the process.
+
+Both numbers are exported: `PATHAO_RATE_LIMIT_PER_MINUTE` (60) and `PATHAO_STATUS_RETENTION_DAYS` (90, roughly how long `getOrderStatus` finds an order).
+
+### Retries
+
+The SDK retries a `5xx` up to twice, but only for requests that are safe to repeat: GETs, token grants and `calculatePrice`. `createOrder`, `createBulkOrder` and `createStore` are **never** retried, because a `5xx` (e.g. a gateway `504` in front of a slow success) doesn't mean the order wasn't booked. If you retry a create yourself, look the order up first, or you may book the parcel twice.
+
+### Order lifecycle
+
+Webhook events and `order_status_slug` describe the same journey. Despite its name, `order_status_slug` is a display label (`"Pending"`, `"In Transit"`, `"Return"`), and Pathao's own plugin spells the same states differently (`Pickup_Requested`, `At_the_Sorting_HUB`), so the SDK doesn't type it. `toLifecycleStatus` maps any of these spellings, or a webhook event (`order.pickup-requested`), to one of `created`, `picked_up`, `in_transit`, `out_for_delivery`, `delivered`, `partial`, `on_hold`, `returning`, `returned`, `cancelled`, or `unknown`.
+
+```typescript
+import { toLifecycleStatus, isFinalLifecycleStatus } from "pathao-merchant-sdk"; // also exported from /webhooks
+
+toLifecycleStatus("order.return-id-created"); // "returning" — not back yet, don't restock
+toLifecycleStatus(info.data.order_status_slug);
+isFinalLifecycleStatus("delivered"); // true
+```
 
 ---
 
@@ -450,6 +493,12 @@ handler.on(PathaoWebhookEvent.ORDER_PAID, (payload) => {
 
 handler.on("error", (err) => {
   console.error("Webhook error:", err.message);
+});
+
+// Payloads whose `event` isn't a known PathaoWebhookEvent arrive here, never
+// under their own name (so a forged {"event":"error"} can't fire "error").
+handler.on("unknown", (payload) => {
+  console.warn("Unrecognised Pathao event:", payload.event);
 });
 
 app.post(
@@ -558,6 +607,9 @@ All payloads also include `updated_at` (MySQL datetime) and `timestamp` (ISO 860
 ```typescript
 import type {
   PathaoConfig,
+  PathaoClientOptions,
+  PathaoErrorKind,
+  PathaoLifecycleStatus,
   PathaoOrderRequest,
   PathaoOrderResponse,
   PathaoStoreRequest,
@@ -574,12 +626,68 @@ import type {
   WebhookEventPayloadMap,
   OrderDeliveredPayload,
   OrderReturnIdCreatedPayload,
+  UnknownWebhookPayload,
   PathaoWebhookEvent,
 } from "pathao-merchant-sdk/webhooks";
 
 // Access a specific payload type via the map
 type PaidPayload = WebhookEventPayloadMap[PathaoWebhookEvent.ORDER_PAID];
 ```
+
+---
+
+## Upgrading to 3.0.0
+
+3.0.0 has **one breaking change**. Most apps need no code changes; check the table below if you catch specific errors or listen for unusual webhook events.
+
+### Required: explicit config no longer reads environment variables
+
+In 2.x, `new PathaoApiService(config)` (and `fromConfig()`, `sandbox()`, `production()`) filled any blank field from `PATHAO_*` environment variables and read `PATHAO_TIMEOUT`. In a multi-tenant app, a tenant with a blank field silently used the platform's own Pathao account. In 3.0.0 those constructors use **exactly** the config you pass. Only `fromEnv()` reads the environment.
+
+**You are affected if** you leave config fields blank or omit them and rely on the environment to fill them in, or set `PATHAO_TIMEOUT` without using `fromEnv()`.
+
+```typescript
+// 2.x — blank fields came from PATHAO_* env vars
+const pathao = new PathaoApiService({ baseURL: "https://api-hermes.pathao.com" } as PathaoConfig);
+const sandbox = PathaoApiService.sandbox({ clientId: "", clientSecret: "", username: "", password: "" });
+
+// 3.0.0 — either read everything from the environment...
+const pathao = PathaoApiService.fromEnv(); // PATHAO_BASE_URL, _CLIENT_ID, _CLIENT_SECRET, _USERNAME, _PASSWORD, _TIMEOUT
+
+// ...or pass every field yourself
+const pathao = new PathaoApiService({
+  baseURL: process.env.PATHAO_BASE_URL!,
+  clientId: process.env.PATHAO_CLIENT_ID!,
+  clientSecret: process.env.PATHAO_CLIENT_SECRET!,
+  username: process.env.PATHAO_USERNAME!,
+  password: process.env.PATHAO_PASSWORD!,
+  timeout: 30_000,
+});
+```
+
+If you already pass every field explicitly, nothing changes. A missing field now fails on the first API call with `PathaoApiError` (`kind: "config"`) instead of quietly using another account.
+
+### Behaviour changes to check
+
+| Change | Affects you if… | What to do |
+| --- | --- | --- |
+| `createOrder`, `createBulkOrder` and `createStore` are no longer auto-retried on `5xx` | You relied on the SDK to retry failed creates | Retry yourself, but look the order up first: a `5xx` may hide a booking that went through. See [Retries](#retries). |
+| `createOrder` / `createBulkOrder` validate the secondary phone, recipient name (3–100) and address (10–220) before sending | You send data Pathao would have rejected with a `422` | Fix the data. The error is `PathaoApiError` with `kind: "validation"`; bulk errors name the order (`orders[2]: …`). |
+| Phone numbers are normalised before sending, and only operator prefixes `013`–`019` are valid | You send `+880…` / `017-…` (now accepted), or `011…` / `012…` (now rejected; BTRC lists these as unused) | Nothing for real customers' numbers |
+| Webhook events not in `PathaoWebhookEvent` are emitted as `'unknown'` | You call `handler.on("some.event")` for a name the SDK doesn't list | Listen on `'unknown'` and check `payload.event`. The `'webhook'` catch-all still fires for every event. |
+| A webhook `event` must be a string | You process malformed payloads | Nothing; they now throw `PathaoWebhookError` |
+| Any `3xx` response is an error (redirects are never followed) | Your `baseURL` points at something that redirects | Use the final URL |
+| Some error messages were reworded (config errors, `formatPhoneNumber`) | You match on `err.message` | Switch to `err.kind` |
+| ESM projects (`moduleResolution: node16`/`nodenext`) get the ESM type declarations | You worked around the old CJS-typed imports | Remove the workaround |
+
+### New in 3.0.0 (optional)
+
+- `err.kind` and `err.retryable` on `PathaoApiError` — see [Error kinds](#error-kinds)
+- `toLifecycleStatus()` / `isFinalLifecycleStatus()` — see [Order lifecycle](#order-lifecycle)
+- `minRequestIntervalMs` option — see [Rate limits](#rate-limits)
+- `PathaoApiService.normalizePhoneNumber()`, `PATHAO_RATE_LIMIT_PER_MINUTE`, `PATHAO_STATUS_RETENTION_DAYS`
+- `order_status` (optional) on order webhook payload types
+- Debug logs no longer include token responses
 
 ---
 
@@ -592,6 +700,8 @@ Contributions are welcome. Please open an issue first for significant changes.
 3. Run `pnpm test` and `pnpm run type-check` before submitting
 
 ## Development
+
+The repo pins pnpm 10 via `packageManager`. Run `corepack enable` once so `pnpm` uses it; pnpm 11+ ignores the `pnpm` settings in `package.json` and `pnpm install --frozen-lockfile` fails.
 
 ```bash
 pnpm install
@@ -612,6 +722,18 @@ Open an issue on [GitHub](https://github.com/sifat07/pathao-merchant-sdk/issues)
 ---
 
 ## Changelog
+
+Full history: [CHANGELOG.md](CHANGELOG.md).
+
+### 3.0.0
+
+- **Breaking:** explicit config no longer falls back to `PATHAO_*` env vars; use `fromEnv()` — see [Upgrading to 3.0.0](#upgrading-to-300)
+- Order and store creation are never auto-retried on `5xx` (prevents duplicate consignments)
+- Debug logs redact token responses; redirects are never followed
+- Webhooks: unknown event names go to `'unknown'`, never to reserved EventEmitter events
+- Phones normalised (`+880…` accepted); orders fully validated before sending
+- `PathaoApiError.kind` / `.retryable`, `toLifecycleStatus()`, `minRequestIntervalMs`, rate/retention constants
+- Correct ESM types; `/webhooks` resolves under `node10`; CI on pnpm 10 and Node 18–24
 
 ### 2.3.0 — 2026-04-16
 

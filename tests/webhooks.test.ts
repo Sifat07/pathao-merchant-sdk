@@ -99,6 +99,33 @@ describe('PathaoWebhookHandler', () => {
       expect(onError).toHaveBeenCalledWith(expect.any(PathaoWebhookError));
     });
 
+    // The body is unauthenticated; its event name must not choose which
+    // EventEmitter event fires.
+    it('routes unrecognised event names to "unknown", never to reserved names', () => {
+      const onError = jest.fn();
+      const onUnknown = jest.fn();
+      const catchAll = jest.fn();
+      handler.on('error', onError);
+      handler.on('unknown', onUnknown);
+      handler.on('webhook', catchAll);
+
+      for (const event of ['error', 'webhook', 'newListener', 'order.made-up']) {
+        expect(() => handler.process(rawBody({ event }))).not.toThrow();
+      }
+
+      expect(onError).not.toHaveBeenCalled();
+      expect(onUnknown).toHaveBeenCalledTimes(4);
+      expect(catchAll).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not throw ERR_UNHANDLED_ERROR for {"event":"error"} with no listener', () => {
+      expect(() => handler.process(rawBody({ event: 'error' }))).not.toThrow();
+    });
+
+    it('rejects a non-string event', () => {
+      expect(() => handler.process(rawBody({ event: 42 }))).toThrow(PathaoWebhookError);
+    });
+
     it('supports once() listeners', () => {
       const listener = jest.fn();
       handler.once(PathaoWebhookEvent.ORDER_DELIVERED, listener);

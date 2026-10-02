@@ -42,6 +42,9 @@
 
 import { EventEmitter } from 'events';
 
+export { toLifecycleStatus, isFinalLifecycleStatus } from './status';
+export type { PathaoLifecycleStatus } from './status';
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -109,6 +112,12 @@ export interface BaseWebhookPayload {
 /** Fields shared by all order-related events */
 export interface OrderWebhookPayload extends BaseWebhookPayload {
   consignment_id: string;
+  /**
+   * Status label, when Pathao includes one (its own WooCommerce plugin reads
+   * this before falling back to the event name). Display-style, e.g.
+   * "Delivered"; pass it to \`toLifecycleStatus\`.
+   */
+  order_status?: string;
   merchant_order_id?: string;
   store_id: number;
   delivery_fee?: number;
@@ -217,6 +226,12 @@ export interface OrderExchangedPayload extends OrderWebhookPayload {
 /** Shared fields for the three return-journey events */
 export interface ReturnOrderWebhookPayload extends BaseWebhookPayload {
   consignment_id: string;
+  /**
+   * Status label, when Pathao includes one (its own WooCommerce plugin reads
+   * this before falling back to the event name). Display-style, e.g.
+   * "Delivered"; pass it to \`toLifecycleStatus\`.
+   */
+  order_status?: string;
   return_consignment_id: string;
   merchant_order_id?: string;
   store_id: number;
@@ -272,6 +287,18 @@ export type PathaoWebhookPayload =
   | OrderReturnedToMerchantPayload
   | StoreCreatedPayload
   | StoreUpdatedPayload;
+
+/**
+ * A payload whose \`event\` isn't one of \`PathaoWebhookEvent\`. Emitted as
+ * \`'unknown'\`, never under its own name, so a sender can't fire reserved
+ * EventEmitter events such as \`'error'\` or \`'newListener'\`.
+ */
+export interface UnknownWebhookPayload {
+  event: string;
+  [key: string]: unknown;
+}
+
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.values(PathaoWebhookEvent));
 
 /** Maps each \`PathaoWebhookEvent\` to its specific payload type */
 export interface WebhookEventPayloadMap {
@@ -335,7 +362,11 @@ export function constructEvent(
     }
   }
 
-  if (!parsed || typeof parsed !== 'object' || !('event' in parsed)) {
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    typeof (parsed as { event?: unknown }).event !== 'string'
+  ) {
     throw new PathaoWebhookError(
       "Webhook payload is missing the required 'event' field.",
     );
@@ -391,6 +422,8 @@ export class PathaoWebhookHandler extends EventEmitter {
   ): this;
   /** Fires for every successfully parsed event regardless of type. */
   on(event: 'webhook', listener: (payload: PathaoWebhookPayload) => void): this;
+  /** Fires for payloads whose \`event\` isn't a known \`PathaoWebhookEvent\`. */
+  on(event: 'unknown', listener: (payload: UnknownWebhookPayload) => void): this;
   /** Fires when parsing fails. */
   on(event: 'error', listener: (error: PathaoWebhookError) => void): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -406,6 +439,10 @@ export class PathaoWebhookHandler extends EventEmitter {
   once(
     event: 'webhook',
     listener: (payload: PathaoWebhookPayload) => void,
+  ): this;
+  once(
+    event: 'unknown',
+    listener: (payload: UnknownWebhookPayload) => void,
   ): this;
   once(event: 'error', listener: (error: PathaoWebhookError) => void): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -441,7 +478,9 @@ export class PathaoWebhookHandler extends EventEmitter {
       throw webhookErr;
     }
 
-    this.emit(payload.event, payload);
+    // The body is unauthenticated, so its event name must never pick an
+    // arbitrary EventEmitter event ('error', 'newListener', 'webhook', ...).
+    this.emit(KNOWN_EVENTS.has(payload.event) ? payload.event : 'unknown', payload);
     this.emit('webhook', payload);
 
     return payload;

@@ -118,6 +118,32 @@ describe("PathaoApiService", () => {
       delete process.env.PATHAO_BASE_URL;
     });
 
+    it("reads PATHAO_TIMEOUT in fromEnv()", () => {
+      process.env.PATHAO_TIMEOUT = "12345";
+      const svc = PathaoApiService.fromEnv();
+      expect((svc as any).pathaoClient.defaults.timeout).toBe(12345);
+      delete process.env.PATHAO_TIMEOUT;
+    });
+
+    // Multi-tenant: a merchant's blank field must not pick up the platform's
+    // own credentials from the environment.
+    it("explicit config never falls back to process.env", async () => {
+      process.env.PATHAO_CLIENT_ID = "platform-id";
+      process.env.PATHAO_TIMEOUT = "12345";
+      const svc = new PathaoApiService({ ...mockConfig, clientId: "" });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+
+      await expect(svc.getCities()).rejects.toThrow(/credentials are required/);
+      expect(innerMock.history.post).toHaveLength(0);
+      expect((svc as any).pathaoClient.defaults.timeout).toBe(30000);
+
+      delete process.env.PATHAO_CLIENT_ID;
+      delete process.env.PATHAO_TIMEOUT;
+      innerMock.restore();
+    });
+
     it("fromConfig() creates an instance", () => {
       const svc = PathaoApiService.fromConfig(mockConfig);
       expect(svc).toBeInstanceOf(PathaoApiService);
@@ -162,6 +188,14 @@ describe("PathaoApiService", () => {
       it("rejects numbers with wrong length", () => {
         expect(PathaoApiService.validatePhoneNumber("0171234567")).toBe(false);
       });
+      it("accepts E.164 and 880-prefixed numbers", () => {
+        expect(PathaoApiService.validatePhoneNumber("+8801712345678")).toBe(true);
+        expect(PathaoApiService.validatePhoneNumber("8801712345678")).toBe(true);
+      });
+      it("rejects unassigned operator prefixes and letters", () => {
+        expect(PathaoApiService.validatePhoneNumber("01212345678")).toBe(false);
+        expect(PathaoApiService.validatePhoneNumber("0171234567a")).toBe(false);
+      });
     });
 
     describe("formatPhoneNumber", () => {
@@ -170,6 +204,11 @@ describe("PathaoApiService", () => {
           "01712345678",
         );
         expect(PathaoApiService.formatPhoneNumber("01712345678")).toBe(
+          "01712345678",
+        );
+      });
+      it("normalises +880 numbers with spaces", () => {
+        expect(PathaoApiService.formatPhoneNumber("+880 1712-345678")).toBe(
           "01712345678",
         );
       });
@@ -321,6 +360,35 @@ describe("PathaoApiService", () => {
       ).rejects.toBeInstanceOf(PathaoApiError);
     });
 
+    it("sends normalised phone numbers, not the raw input", async () => {
+      mock.onPost("/aladdin/api/v1/orders").reply(200, { data: {} });
+      await pathaoService.createOrder({
+        ...orderData,
+        recipient_phone: "+880 1712-345678",
+        recipient_secondary_phone: "017-1234-5679",
+      });
+      const sent = JSON.parse(
+        mock.history.post.find((r) => r.url === "/aladdin/api/v1/orders")!.data,
+      );
+      expect(sent.recipient_phone).toBe("01712345678");
+      expect(sent.recipient_secondary_phone).toBe("01712345679");
+    });
+
+    it("validates the secondary phone, name and address before sending", async () => {
+      for (const bad of [
+        { recipient_secondary_phone: "12345" },
+        { recipient_name: "Jo" },
+        { recipient_address: "short" },
+      ]) {
+        await expect(
+          pathaoService.createOrder({ ...orderData, ...bad }),
+        ).rejects.toBeInstanceOf(PathaoApiError);
+      }
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders"),
+      ).toHaveLength(0);
+    });
+
     it("throws PathaoApiError for invalid weight", async () => {
       await expect(
         pathaoService.createOrder({ ...orderData, item_weight: 0.1 }),
@@ -352,6 +420,26 @@ describe("PathaoApiService", () => {
       mock.onPost("/aladdin/api/v1/orders/bulk").reply(202, mockResponse);
       const result = await pathaoService.createBulkOrder(orders);
       expect(result).toEqual(mockResponse);
+    });
+
+    it("reports which order failed validation and sends nothing", async () => {
+      const good = {
+        store_id: 123,
+        recipient_name: "John",
+        recipient_phone: "01712345678",
+        recipient_address: "123 Main Street, Dhanmondi",
+        delivery_type: DeliveryType.NORMAL,
+        item_type: ItemType.PARCEL,
+        item_quantity: 1,
+        item_weight: 1.0,
+        amount_to_collect: 500,
+      };
+      const err = (await pathaoService
+        .createBulkOrder([good, { ...good, recipient_phone: "123" }])
+        .catch((e) => e)) as PathaoApiError;
+      expect(err).toBeInstanceOf(PathaoApiError);
+      expect(err.message).toContain("orders[1]: Invalid recipient_phone");
+      expect(mock.history.post.filter((r) => r.url?.includes("/bulk"))).toHaveLength(0);
     });
   });
 
@@ -632,6 +720,48 @@ describe("PathaoApiService", () => {
       expect(result).toEqual(mockResolvedResponse);
     });
 
+    // A 5xx on a create may hide a booking that went through; retrying
+    // would book a second consignment for the same parcel.
+    it("does not retry a 5xx on createOrder", async () => {
+      mock.onPost("/aladdin/api/v1/orders").reply(503);
+      const err = (await pathaoService
+        .createOrder({
+          store_id: 123,
+          recipient_name: "John Doe",
+          recipient_phone: "01712345678",
+          recipient_address: "123 Main Street, Dhanmondi",
+          delivery_type: DeliveryType.NORMAL,
+          item_type: ItemType.PARCEL,
+          item_quantity: 1,
+          item_weight: 1.0,
+          amount_to_collect: 500,
+        })
+        .catch((e) => e)) as PathaoApiError;
+      expect(err.status).toBe(503);
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders"),
+      ).toHaveLength(1);
+    });
+
+    it("does not retry a 5xx on createBulkOrder", async () => {
+      mock.onPost("/aladdin/api/v1/orders/bulk").reply(502);
+      await expect(pathaoService.createBulkOrder([])).rejects.toBeInstanceOf(
+        PathaoApiError,
+      );
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders/bulk"),
+      ).toHaveLength(1);
+    });
+
+    it("retries a 5xx on getOrderStatus", async () => {
+      mock.onGet("/aladdin/api/v1/orders/CONS1/info").replyOnce(503);
+      mock
+        .onGet("/aladdin/api/v1/orders/CONS1/info")
+        .replyOnce(200, { data: { consignment_id: "CONS1" } });
+      const result = await pathaoService.getOrderStatus("CONS1");
+      expect(result.data.consignment_id).toBe("CONS1");
+    });
+
     it("throws after exhausting 5xx retries", async () => {
       mock
         .onGet("/aladdin/api/v1/city-list")
@@ -730,9 +860,34 @@ describe("PathaoApiService", () => {
       expect(allLogText).toContain("[REDACTED]");
       // The raw bearer token must NOT appear in the Authorization header value
       expect(allLogText).not.toContain("Bearer mock-access-token");
+      // Token grant responses must not leak either token
+      expect(allLogText).not.toContain("mock-access-token");
+      expect(allLogText).not.toContain("mock-refresh-token");
 
       jest.restoreAllMocks();
       innerMock.restore();
+    });
+  });
+
+  describe("minRequestIntervalMs", () => {
+    it("spaces concurrent requests, token grant included", async () => {
+      const svc = new PathaoApiService(mockConfig, { minRequestIntervalMs: 50 });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+
+      const start = Date.now();
+      await Promise.all([svc.getCities(), svc.getCities(), svc.getCities()]);
+      // 3 GETs + 1 token grant = 4 requests, 3 gaps of 50ms
+      expect(Date.now() - start).toBeGreaterThanOrEqual(140);
+      innerMock.restore();
+    });
+  });
+
+  describe("redirects", () => {
+    // A 307/308 re-sends the issue-token body (client secret, password).
+    it("never follows redirects", () => {
+      expect((pathaoService as any).pathaoClient.defaults.maxRedirects).toBe(0);
     });
   });
 

@@ -6,8 +6,8 @@
  * API Details (based on public documentation):
  * - Authentication: OAuth2 with client_id, client_secret, username, password
  * - All endpoints use /aladdin/api/v1/ prefix
- * - Base URL can be set via PATHAO_BASE_URL environment variable or constructor config
- * - Timeout can be set via PATHAO_TIMEOUT environment variable or constructor config
+ * - The constructor reads only the config it is given. Use fromEnv() to read
+ *   PATHAO_* environment variables (including PATHAO_TIMEOUT).
  *
  * Features implemented:
  * - Token-based authentication with refresh token support
@@ -38,7 +38,47 @@ import {
   PathaoZoneResponse,
 } from './types';
 
+// GETs, token grants and the read-only price-plan POST can be repeated
+// without side effects. Order and store creation cannot.
+function isSafeToRetry(config: { method?: string | undefined; url?: string | undefined }): boolean {
+  const url = config.url ?? '';
+  return (
+    config.method?.toLowerCase() === 'get' ||
+    url.includes('/issue-token') ||
+    url.includes('/merchant/price-plan')
+  );
+}
+
+export type PathaoErrorKind =
+  /** Input rejected, by this SDK before sending or by Pathao (HTTP 400/422). */
+  | 'validation'
+  /** Missing or wrong baseURL / credentials, caught before any request. */
+  | 'config'
+  /** Rejected credentials or token (HTTP 401). */
+  | 'auth'
+  /** HTTP 403. */
+  | 'forbidden'
+  /** Unknown consignment, store or resource (HTTP 404). */
+  | 'not_found'
+  /** HTTP 429. Back off; see PATHAO_RATE_LIMIT_PER_MINUTE. */
+  | 'rate_limited'
+  /** 5xx, timeout, network failure or open circuit breaker. */
+  | 'unavailable'
+  /** A response this SDK doesn't understand. Inspect `responseData`. */
+  | 'unexpected';
+
+function kindForStatus(status: number | undefined): PathaoErrorKind {
+  if (status === 400 || status === 422) return 'validation';
+  if (status === 401) return 'auth';
+  if (status === 403) return 'forbidden';
+  if (status === 404) return 'not_found';
+  if (status === 429) return 'rate_limited';
+  if (status !== undefined && status >= 500) return 'unavailable';
+  return 'unexpected';
+}
+
 export class PathaoApiError extends Error {
+  kind: PathaoErrorKind;
   status: number | undefined;
   code: number | undefined;
   type: string | undefined;
@@ -55,16 +95,27 @@ export class PathaoApiError extends Error {
       errors?: Record<string, string[]> | undefined;
       validation?: Record<string, string[]> | undefined;
       responseData?: unknown;
+      kind?: PathaoErrorKind | undefined;
     } = {},
   ) {
     super(message);
     this.name = 'PathaoApiError';
+    this.kind = options.kind ?? kindForStatus(options.status ?? options.code);
     this.status = options.status;
     this.code = options.code;
     this.type = options.type;
     this.errors = options.errors;
     this.validation = options.validation;
     this.responseData = options.responseData;
+  }
+
+  /**
+   * True for transient failures (`unavailable`, `rate_limited`). For
+   * createOrder / createBulkOrder a 5xx may hide a booking that went through:
+   * look the order up before retrying a create.
+   */
+  get retryable(): boolean {
+    return this.kind === 'unavailable' || this.kind === 'rate_limited';
   }
 }
 
@@ -79,6 +130,19 @@ export interface CircuitBreakerConfig {
   timeout?: number;    // Default: 60000ms
 }
 
+export interface PathaoClientOptions {
+  /** Log requests and responses (tokens and Authorization redacted). */
+  debug?: boolean;
+  circuitBreaker?: CircuitBreakerConfig;
+  /**
+   * Minimum gap between requests from this instance, in ms. Requests queue
+   * instead of tripping Pathao's 60/min limit (PATHAO_RATE_LIMIT_PER_MINUTE).
+   * 1500 keeps one instance near 40/min, leaving headroom for other callers
+   * sharing the credentials. Default 0 (no spacing).
+   */
+  minRequestIntervalMs?: number;
+}
+
 export class PathaoApiService {
   private pathaoClient: AxiosInstance;
   private accessToken: string | null = null;
@@ -89,6 +153,8 @@ export class PathaoApiService {
   private authPromise: Promise<void> | null = null;
   private hasValidated: boolean = false;
   private debug: boolean = false;
+  private minRequestIntervalMs: number;
+  private nextRequestAt = 0;
   private circuitBreaker: {
     failures: number;
     lastFailureTime: number;
@@ -97,22 +163,21 @@ export class PathaoApiService {
     isOpen: boolean;
   };
 
-  constructor(config: PathaoConfig, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }) {
-    const parsedTimeout = parseInt(process.env.PATHAO_TIMEOUT || '', 10);
-    const envTimeout = Number.isNaN(parsedTimeout) || parsedTimeout <= 0 ? 30000 : parsedTimeout;
-    const timeout: number = config.timeout ?? envTimeout;
-
+  constructor(config: PathaoConfig, options?: PathaoClientOptions) {
+    // Explicit config is read as given, never topped up from process.env: in
+    // a multi-tenant app a blank field would otherwise pick up the platform's
+    // own Pathao account. Env-based setup is fromEnv().
     this.config = {
-      baseURL: config.baseURL || process.env.PATHAO_BASE_URL || '',
-      timeout,
-      clientId: config.clientId || process.env.PATHAO_CLIENT_ID || '',
-      clientSecret:
-        config.clientSecret || process.env.PATHAO_CLIENT_SECRET || '',
-      username: config.username || process.env.PATHAO_USERNAME || '',
-      password: config.password || process.env.PATHAO_PASSWORD || '',
+      baseURL: config.baseURL ?? '',
+      timeout: config.timeout ?? 30000,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      username: config.username,
+      password: config.password,
     };
 
     this.debug = options?.debug || false;
+    this.minRequestIntervalMs = Math.max(0, options?.minRequestIntervalMs ?? 0);
     this.circuitBreaker = {
       failures: 0,
       lastFailureTime: 0,
@@ -124,6 +189,10 @@ export class PathaoApiService {
     this.pathaoClient = axios.create({
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       timeout: this.config.timeout,
+      // Pathao has no reason to redirect, and a 307/308 would re-send the
+      // issue-token body (client secret, password) to wherever it points.
+      // With 0, any 3xx rejects like an error status.
+      maxRedirects: 0,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -133,6 +202,10 @@ export class PathaoApiService {
 
     // Add request interceptor for authentication
     this.pathaoClient.interceptors.request.use(async (config) => {
+      // Every request counts against Pathao's limit, token grants and
+      // retries included, so space them all.
+      await this.waitForRequestSlot();
+
       // Skip auth for token requests to prevent infinite loops
       if (config.url?.includes('/issue-token')) {
         return config;
@@ -165,9 +238,11 @@ export class PathaoApiService {
         this.circuitBreaker.isOpen = false;
 
         if (this.debug) {
+          // Token grants carry access_token / refresh_token; never log them.
+          const isTokenResponse = response.config.url?.includes('/issue-token');
           console.log(`[Pathao SDK] Response ${response.status}`, {
             url: response.config.url,
-            data: response.data,
+            data: isTokenResponse ? '[REDACTED]' : response.data,
           });
         }
 
@@ -209,9 +284,12 @@ export class PathaoApiService {
           return this.pathaoClient.request(error.config);
         }
 
-        // Retry transient 5xx errors with exponential backoff (max 2 retries)
+        // Retry transient 5xx errors with exponential backoff (max 2 retries),
+        // but only for requests that are safe to repeat. A 5xx on a create
+        // (a gateway 502/504 in front of a slow success) may already have
+        // booked the consignment; re-POSTing can book it again.
         const status: number | undefined = error.response?.status;
-        if (status !== undefined && status >= 500 && error.config) {
+        if (status !== undefined && status >= 500 && error.config && isSafeToRetry(error.config)) {
           const retryCount: number = (error.config._retryCount as number | undefined) ?? 0;
           if (retryCount < 2) {
             error.config._retryCount = retryCount + 1;
@@ -239,18 +317,16 @@ export class PathaoApiService {
     }
 
     if (!this.config.baseURL) {
-      throw this.toPathaoApiError(
-        new Error(
-          'Pathao API baseURL is required. You can provide it via constructor config or PATHAO_BASE_URL environment variable',
-        ),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API baseURL is required. Pass it in the config, or use PathaoApiService.fromEnv() with PATHAO_BASE_URL set',
+        { kind: 'config' },
       );
     }
 
     if (!this.config.baseURL.startsWith('https://')) {
-      throw this.toPathaoApiError(
-        new Error('Pathao API baseURL must use HTTPS (https://)'),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API baseURL must use HTTPS (https://)',
+        { kind: 'config' },
       );
     }
 
@@ -260,11 +336,9 @@ export class PathaoApiService {
       !this.config.username ||
       !this.config.password
     ) {
-      throw this.toPathaoApiError(
-        new Error(
-          'Pathao API credentials are required: clientId, clientSecret, username, password. You can provide them via constructor config or environment variables (PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME, PATHAO_PASSWORD)',
-        ),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API credentials are required: clientId, clientSecret, username, password. Pass them in the config, or use PathaoApiService.fromEnv() with PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME and PATHAO_PASSWORD set',
+        { kind: 'config' },
       );
     }
 
@@ -283,7 +357,7 @@ export class PathaoApiService {
       } else {
         throw new PathaoApiError(
           'Circuit breaker is open after repeated network, server or authentication failures. Try again later.',
-          { code: 503 },
+          { code: 503, kind: 'unavailable' },
         );
       }
     }
@@ -411,6 +485,8 @@ export class PathaoApiService {
           errors: pathaoError?.errors,
           validation: pathaoError?.validation,
           responseData: pathaoError ?? axiosLike.response?.data,
+          // No response at all: timeout or network failure.
+          ...(axiosLike.response ? {} : { kind: 'unavailable' as const }),
         },
       );
     }
@@ -427,6 +503,16 @@ export class PathaoApiService {
     }
   }
 
+  // Reserves the next free slot synchronously, then waits for it, so
+  // concurrent callers queue in call order.
+  private async waitForRequestSlot(): Promise<void> {
+    if (this.minRequestIntervalMs <= 0) return;
+    const now = Date.now();
+    const at = Math.max(now, this.nextRequestAt);
+    this.nextRequestAt = at + this.minRequestIntervalMs;
+    if (at > now) await this.delay(at - now);
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
@@ -436,16 +522,9 @@ export class PathaoApiService {
     orderData: PathaoOrderRequest,
   ): Promise<PathaoOrderResponse> {
     try {
-      if (!PathaoApiService.validatePhoneNumber(orderData.recipient_phone)) {
-        throw new PathaoApiError('Validation failed: Invalid recipient_phone format', { code: 400 });
-      }
-      if (!PathaoApiService.validateWeight(orderData.item_weight)) {
-        throw new PathaoApiError('Validation failed: Invalid item_weight (must be 0.5 to 10)', { code: 400 });
-      }
-
       const response = await this.pathaoClient.post<PathaoOrderResponse>(
         '/aladdin/api/v1/orders',
-        orderData,
+        PathaoApiService.prepareOrder(orderData),
       );
       return response.data;
     } catch (error: unknown) {
@@ -573,28 +652,69 @@ export class PathaoApiService {
     orders: PathaoOrderRequest[],
   ): Promise<PathaoBulkOrderResponse> {
     try {
+      const prepared = orders.map((order, i) => PathaoApiService.prepareOrder(order, `orders[${i}]: `));
       const response = await this.pathaoClient.post<PathaoBulkOrderResponse>(
-        '/aladdin/api/v1/orders/bulk', { orders });
+        '/aladdin/api/v1/orders/bulk', { orders: prepared });
       return response.data;
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to create bulk Pathao orders');
     }
   }
 
+  // Validates an order and returns it with phones normalised to 01XXXXXXXXX,
+  // so local checks catch what Pathao would reject with a 422 and what is
+  // sent is what was validated.
+  private static prepareOrder(order: PathaoOrderRequest, prefix = ''): PathaoOrderRequest {
+    const fail = (message: string): never => {
+      throw new PathaoApiError(`Validation failed: ${prefix}${message}`, { code: 400 });
+    };
+    const phone = PathaoApiService.normalizePhoneNumber(order.recipient_phone ?? '');
+    if (!phone) fail('Invalid recipient_phone format');
+    let secondary: string | null = null;
+    if (order.recipient_secondary_phone) {
+      secondary = PathaoApiService.normalizePhoneNumber(order.recipient_secondary_phone);
+      if (!secondary) fail('Invalid recipient_secondary_phone format');
+    }
+    if (!PathaoApiService.validateRecipientName(order.recipient_name ?? '')) {
+      fail('Invalid recipient_name (must be 3 to 100 characters)');
+    }
+    if (!PathaoApiService.validateAddress(order.recipient_address ?? '')) {
+      fail('Invalid recipient_address (must be 10 to 220 characters)');
+    }
+    if (!PathaoApiService.validateWeight(order.item_weight)) {
+      fail('Invalid item_weight (must be 0.5 to 10)');
+    }
+    return {
+      ...order,
+      recipient_phone: phone as string,
+      ...(secondary ? { recipient_secondary_phone: secondary } : {}),
+    };
+  }
+
+  /**
+   * Normalise a Bangladeshi mobile number to 01XXXXXXXXX. Accepts +8801…,
+   * 8801… and 01…, with spaces, dashes, dots or parentheses. Returns null for
+   * anything that isn't a BD mobile number (operator prefixes 013–019).
+   */
+  static normalizePhoneNumber(phone: string): string | null {
+    const digits = phone.replace(/[\s\-().]/g, '').replace(/^\+/, '');
+    const local = digits.startsWith('880') ? `0${digits.slice(3)}` : digits;
+    return /^01[3-9]\d{8}$/.test(local) ? local : null;
+  }
+
   // Helper method to validate phone number
   static validatePhoneNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
-    return cleanPhone.length === 11 && cleanPhone.startsWith('01');
+    return PathaoApiService.normalizePhoneNumber(phone) !== null;
   }
 
   // Helper method to format phone number
   static formatPhoneNumber(phone: string): string {
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 11 && cleanPhone.startsWith('01')) {
-      return cleanPhone;
+    const normalized = PathaoApiService.normalizePhoneNumber(phone);
+    if (normalized) {
+      return normalized;
     }
     throw new Error(
-      'Invalid phone number format. Must be 11 digits starting with 01',
+      'Invalid phone number format. Must be a Bangladeshi mobile number (01XXXXXXXXX or +8801XXXXXXXXX)',
     );
   }
 
@@ -629,8 +749,7 @@ export class PathaoApiService {
 
   // Helper method to validate contact number
   static validateContactNumber(phone: string): boolean {
-    const cleanPhone = phone.replace(/\D/g, '');
-    return cleanPhone.length === 11 && cleanPhone.startsWith('01');
+    return PathaoApiService.normalizePhoneNumber(phone) !== null;
   }
 
   // Helper method to validate store address
@@ -652,7 +771,7 @@ export class PathaoApiService {
   }
 
   // Static factory method to create instance from environment variables
-  static fromEnv(options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static fromEnv(options?: PathaoClientOptions): PathaoApiService {
     const config: PathaoConfig = {
       clientId: process.env.PATHAO_CLIENT_ID || '',
       clientSecret: process.env.PATHAO_CLIENT_SECRET || '',
@@ -660,19 +779,23 @@ export class PathaoApiService {
       password: process.env.PATHAO_PASSWORD || '',
       baseURL: process.env.PATHAO_BASE_URL || '',
     };
+    const timeout = parseInt(process.env.PATHAO_TIMEOUT || '', 10);
+    if (timeout > 0) {
+      config.timeout = timeout;
+    }
     return new PathaoApiService(config, options);
   }
 
   // Static factory method to create instance from configuration object
   static fromConfig(
     config: PathaoConfig,
-    options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig },
+    options?: PathaoClientOptions,
   ): PathaoApiService {
     return new PathaoApiService(config, options);
   }
 
   // Named constructor for sandbox environment
-  static sandbox(credentials: Omit<PathaoConfig, 'baseURL'>, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static sandbox(credentials: Omit<PathaoConfig, 'baseURL'>, options?: PathaoClientOptions): PathaoApiService {
     return new PathaoApiService(
       { ...credentials, baseURL: 'https://courier-api-sandbox.pathao.com' },
       options,
@@ -680,7 +803,7 @@ export class PathaoApiService {
   }
 
   // Named constructor for production environment
-  static production(credentials: Omit<PathaoConfig, 'baseURL'>, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }): PathaoApiService {
+  static production(credentials: Omit<PathaoConfig, 'baseURL'>, options?: PathaoClientOptions): PathaoApiService {
     return new PathaoApiService(
       { ...credentials, baseURL: 'https://api-hermes.pathao.com' },
       options,

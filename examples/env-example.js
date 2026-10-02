@@ -10,8 +10,9 @@ const { PathaoApiService } = require("../dist/index.js");
 async function exampleWithEnvVars() {
   console.log("🚀 Pathao SDK with Environment Variables Example\n");
 
-  // The SDK reads PATHAO_BASE_URL from environment variables.
-  // baseURL is required — the SDK throws on first API call if it is empty.
+  // The constructor uses exactly this config; it never reads env vars itself
+  // (PathaoApiService.fromEnv() does). baseURL is required — the SDK throws on
+  // the first API call if it is empty.
 
   const pathao = new PathaoApiService({
     baseURL: process.env.PATHAO_BASE_URL || "https://api-hermes.pathao.com",

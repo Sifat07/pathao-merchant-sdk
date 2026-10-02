@@ -4,8 +4,7 @@
  * Official API Details:
  * - Authentication: OAuth2 with client_id, client_secret, username, password
  * - All endpoints use /aladdin/api/v1/ prefix
- * - Base URL can be set via PATHAO_BASE_URL environment variable or constructor config
- * - Timeout can be set via PATHAO_TIMEOUT environment variable or constructor config
+ * - Config is passed explicitly, or read from PATHAO_* env vars by fromEnv()
  */
 
 // Official Pathao API Authentication Response
