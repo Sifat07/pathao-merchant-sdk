@@ -79,6 +79,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "packageManager": "pnpm@10.14.0",
   "dependencies": {
     "axios": "^1.20.0"
   },
@@ -101,6 +102,9 @@
     "overrides": {
       "minimatch@>=9.0.0 <9.0.7": "^9.0.7",
       "esbuild@>=0.27.3 <0.28.1": "^0.28.1"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
