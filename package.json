@@ -7,14 +7,31 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./webhooks": {
-      "types": "./dist/webhooks.d.ts",
-      "import": "./dist/webhooks.mjs",
-      "require": "./dist/webhooks.js"
+      "import": {
+        "types": "./dist/webhooks.d.mts",
+        "default": "./dist/webhooks.mjs"
+      },
+      "require": {
+        "types": "./dist/webhooks.d.ts",
+        "default": "./dist/webhooks.js"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "webhooks": [
+        "./dist/webhooks.d.ts"
+      ]
     }
   },
   "sideEffects": false,
