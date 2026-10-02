@@ -386,6 +386,10 @@ Pathao doesn't document its limits. Measured against its gateway (Sep 2026): **6
 
 For bulk work (e.g. polling `getOrderStatus` for many orders) space calls out yourself — about one request every 1.5 s keeps you near 40/min and leaves headroom for webhooks and other calls sharing the same credentials.
 
+### Retries
+
+The SDK retries a `5xx` up to twice, but only for requests that are safe to repeat: GETs, token grants and `calculatePrice`. `createOrder`, `createBulkOrder` and `createStore` are **never** retried, because a `5xx` (e.g. a gateway `504` in front of a slow success) doesn't mean the order wasn't booked. If you retry a create yourself, look the order up first, or you may book the parcel twice.
+
 ---
 
 ## Webhooks

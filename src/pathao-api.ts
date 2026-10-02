@@ -38,6 +38,17 @@ import {
   PathaoZoneResponse,
 } from './types';
 
+// GETs, token grants and the read-only price-plan POST can be repeated
+// without side effects. Order and store creation cannot.
+function isSafeToRetry(config: { method?: string | undefined; url?: string | undefined }): boolean {
+  const url = config.url ?? '';
+  return (
+    config.method?.toLowerCase() === 'get' ||
+    url.includes('/issue-token') ||
+    url.includes('/merchant/price-plan')
+  );
+}
+
 export class PathaoApiError extends Error {
   status: number | undefined;
   code: number | undefined;
@@ -215,9 +226,12 @@ export class PathaoApiService {
           return this.pathaoClient.request(error.config);
         }
 
-        // Retry transient 5xx errors with exponential backoff (max 2 retries)
+        // Retry transient 5xx errors with exponential backoff (max 2 retries),
+        // but only for requests that are safe to repeat. A 5xx on a create
+        // (a gateway 502/504 in front of a slow success) may already have
+        // booked the consignment; re-POSTing can book it again.
         const status: number | undefined = error.response?.status;
-        if (status !== undefined && status >= 500 && error.config) {
+        if (status !== undefined && status >= 500 && error.config && isSafeToRetry(error.config)) {
           const retryCount: number = (error.config._retryCount as number | undefined) ?? 0;
           if (retryCount < 2) {
             error.config._retryCount = retryCount + 1;

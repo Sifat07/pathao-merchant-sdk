@@ -632,6 +632,48 @@ describe("PathaoApiService", () => {
       expect(result).toEqual(mockResolvedResponse);
     });
 
+    // A 5xx on a create may hide a booking that went through; retrying
+    // would book a second consignment for the same parcel.
+    it("does not retry a 5xx on createOrder", async () => {
+      mock.onPost("/aladdin/api/v1/orders").reply(503);
+      const err = (await pathaoService
+        .createOrder({
+          store_id: 123,
+          recipient_name: "John Doe",
+          recipient_phone: "01712345678",
+          recipient_address: "123 Main Street, Dhanmondi",
+          delivery_type: DeliveryType.NORMAL,
+          item_type: ItemType.PARCEL,
+          item_quantity: 1,
+          item_weight: 1.0,
+          amount_to_collect: 500,
+        })
+        .catch((e) => e)) as PathaoApiError;
+      expect(err.status).toBe(503);
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders"),
+      ).toHaveLength(1);
+    });
+
+    it("does not retry a 5xx on createBulkOrder", async () => {
+      mock.onPost("/aladdin/api/v1/orders/bulk").reply(502);
+      await expect(pathaoService.createBulkOrder([])).rejects.toBeInstanceOf(
+        PathaoApiError,
+      );
+      expect(
+        mock.history.post.filter((r) => r.url === "/aladdin/api/v1/orders/bulk"),
+      ).toHaveLength(1);
+    });
+
+    it("retries a 5xx on getOrderStatus", async () => {
+      mock.onGet("/aladdin/api/v1/orders/CONS1/info").replyOnce(503);
+      mock
+        .onGet("/aladdin/api/v1/orders/CONS1/info")
+        .replyOnce(200, { data: { consignment_id: "CONS1" } });
+      const result = await pathaoService.getOrderStatus("CONS1");
+      expect(result.data.consignment_id).toBe("CONS1");
+    });
+
     it("throws after exhausting 5xx retries", async () => {
       mock
         .onGet("/aladdin/api/v1/city-list")
