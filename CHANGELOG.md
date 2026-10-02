@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v3.0.0...pathao-merchant-sdk-v3.0.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* classify HTTP 402 as kind 'forbidden' ([be59179](https://github.com/Sifat07/pathao-merchant-sdk/commit/be59179fb669d74e6bef863f6f44390b9b7fb265))
+* export ./package.json ([daddca4](https://github.com/Sifat07/pathao-merchant-sdk/commit/daddca47359c6fee6284a74a595e45e4968d4054))
+
 ## [3.0.0](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v2.3.2...pathao-merchant-sdk-v3.0.0) (2026-10-02)
 
 
