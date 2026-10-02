@@ -16,6 +16,7 @@
         "default": "./dist/index.js"
       }
     },
+    "./package.json": "./package.json",
     "./webhooks": {
       "import": {
         "types": "./dist/webhooks.d.mts",
