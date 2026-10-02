@@ -375,6 +375,23 @@ try {
 }
 ```
 
+### Error kinds
+
+Branch on `err.kind` instead of matching message text. `err.retryable` is `true` for `unavailable` and `rate_limited`.
+
+| `kind`         | When                                                        |
+| -------------- | ----------------------------------------------------------- |
+| `validation`   | Rejected by the SDK before sending, or HTTP 400/422         |
+| `config`       | Missing/invalid `baseURL` or credentials                    |
+| `auth`         | HTTP 401                                                    |
+| `forbidden`    | HTTP 403                                                    |
+| `not_found`    | HTTP 404                                                    |
+| `rate_limited` | HTTP 429                                                    |
+| `unavailable`  | 5xx, timeout, network failure, circuit breaker open         |
+| `unexpected`   | Anything else; inspect `err.responseData`                   |
+
+A retryable error on `createOrder` / `createBulkOrder` may still have booked the parcel. Look the order up before retrying a create.
+
 ### Common error scenarios
 
 | Status | Cause                                                        |
@@ -391,9 +408,23 @@ Pathao doesn't document its limits. Measured against its gateway (Sep 2026): **6
 
 For bulk work (e.g. polling `getOrderStatus` for many orders) space calls out yourself — about one request every 1.5 s keeps you near 40/min and leaves headroom for webhooks and other calls sharing the same credentials.
 
+Both numbers are exported: `PATHAO_RATE_LIMIT_PER_MINUTE` (60) and `PATHAO_STATUS_RETENTION_DAYS` (90, roughly how long `getOrderStatus` finds an order).
+
 ### Retries
 
 The SDK retries a `5xx` up to twice, but only for requests that are safe to repeat: GETs, token grants and `calculatePrice`. `createOrder`, `createBulkOrder` and `createStore` are **never** retried, because a `5xx` (e.g. a gateway `504` in front of a slow success) doesn't mean the order wasn't booked. If you retry a create yourself, look the order up first, or you may book the parcel twice.
+
+### Order lifecycle
+
+Webhook events and `order_status_slug` describe the same journey. `toLifecycleStatus` maps either one (any spelling: `order.pickup-requested`, `Pickup Requested`, `pickup_requested`) to one of `created`, `picked_up`, `in_transit`, `out_for_delivery`, `delivered`, `partial`, `on_hold`, `returning`, `returned`, `cancelled`, or `unknown`.
+
+```typescript
+import { toLifecycleStatus, isFinalLifecycleStatus } from "pathao-merchant-sdk"; // also exported from /webhooks
+
+toLifecycleStatus("order.return-id-created"); // "returning" — not back yet, don't restock
+toLifecycleStatus(info.data.order_status_slug);
+isFinalLifecycleStatus("delivered"); // true
+```
 
 ---
 
@@ -459,6 +490,12 @@ handler.on(PathaoWebhookEvent.ORDER_PAID, (payload) => {
 
 handler.on("error", (err) => {
   console.error("Webhook error:", err.message);
+});
+
+// Payloads whose `event` isn't a known PathaoWebhookEvent arrive here, never
+// under their own name (so a forged {"event":"error"} can't fire "error").
+handler.on("unknown", (payload) => {
+  console.warn("Unrecognised Pathao event:", payload.event);
 });
 
 app.post(

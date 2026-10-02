@@ -42,6 +42,9 @@
 
 import { EventEmitter } from 'events';
 
+export { toLifecycleStatus, isFinalLifecycleStatus } from './status';
+export type { PathaoLifecycleStatus } from './status';
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------

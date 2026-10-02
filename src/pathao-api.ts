@@ -49,7 +49,36 @@ function isSafeToRetry(config: { method?: string | undefined; url?: string | und
   );
 }
 
+export type PathaoErrorKind =
+  /** Input rejected, by this SDK before sending or by Pathao (HTTP 400/422). */
+  | 'validation'
+  /** Missing or wrong baseURL / credentials, caught before any request. */
+  | 'config'
+  /** Rejected credentials or token (HTTP 401). */
+  | 'auth'
+  /** HTTP 403. */
+  | 'forbidden'
+  /** Unknown consignment, store or resource (HTTP 404). */
+  | 'not_found'
+  /** HTTP 429. Back off; see PATHAO_RATE_LIMIT_PER_MINUTE. */
+  | 'rate_limited'
+  /** 5xx, timeout, network failure or open circuit breaker. */
+  | 'unavailable'
+  /** A response this SDK doesn't understand. Inspect `responseData`. */
+  | 'unexpected';
+
+function kindForStatus(status: number | undefined): PathaoErrorKind {
+  if (status === 400 || status === 422) return 'validation';
+  if (status === 401) return 'auth';
+  if (status === 403) return 'forbidden';
+  if (status === 404) return 'not_found';
+  if (status === 429) return 'rate_limited';
+  if (status !== undefined && status >= 500) return 'unavailable';
+  return 'unexpected';
+}
+
 export class PathaoApiError extends Error {
+  kind: PathaoErrorKind;
   status: number | undefined;
   code: number | undefined;
   type: string | undefined;
@@ -66,16 +95,27 @@ export class PathaoApiError extends Error {
       errors?: Record<string, string[]> | undefined;
       validation?: Record<string, string[]> | undefined;
       responseData?: unknown;
+      kind?: PathaoErrorKind | undefined;
     } = {},
   ) {
     super(message);
     this.name = 'PathaoApiError';
+    this.kind = options.kind ?? kindForStatus(options.status ?? options.code);
     this.status = options.status;
     this.code = options.code;
     this.type = options.type;
     this.errors = options.errors;
     this.validation = options.validation;
     this.responseData = options.responseData;
+  }
+
+  /**
+   * True for transient failures (`unavailable`, `rate_limited`). For
+   * createOrder / createBulkOrder a 5xx may hide a booking that went through:
+   * look the order up before retrying a create.
+   */
+  get retryable(): boolean {
+    return this.kind === 'unavailable' || this.kind === 'rate_limited';
   }
 }
 
@@ -257,18 +297,16 @@ export class PathaoApiService {
     }
 
     if (!this.config.baseURL) {
-      throw this.toPathaoApiError(
-        new Error(
-          'Pathao API baseURL is required. Pass it in the config, or use PathaoApiService.fromEnv() with PATHAO_BASE_URL set',
-        ),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API baseURL is required. Pass it in the config, or use PathaoApiService.fromEnv() with PATHAO_BASE_URL set',
+        { kind: 'config' },
       );
     }
 
     if (!this.config.baseURL.startsWith('https://')) {
-      throw this.toPathaoApiError(
-        new Error('Pathao API baseURL must use HTTPS (https://)'),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API baseURL must use HTTPS (https://)',
+        { kind: 'config' },
       );
     }
 
@@ -278,11 +316,9 @@ export class PathaoApiService {
       !this.config.username ||
       !this.config.password
     ) {
-      throw this.toPathaoApiError(
-        new Error(
-          'Pathao API credentials are required: clientId, clientSecret, username, password. Pass them in the config, or use PathaoApiService.fromEnv() with PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME and PATHAO_PASSWORD set',
-        ),
-        'Configuration validation failed',
+      throw new PathaoApiError(
+        'Configuration validation failed: Pathao API credentials are required: clientId, clientSecret, username, password. Pass them in the config, or use PathaoApiService.fromEnv() with PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME and PATHAO_PASSWORD set',
+        { kind: 'config' },
       );
     }
 
@@ -301,7 +337,7 @@ export class PathaoApiService {
       } else {
         throw new PathaoApiError(
           'Circuit breaker is open after repeated network, server or authentication failures. Try again later.',
-          { code: 503 },
+          { code: 503, kind: 'unavailable' },
         );
       }
     }
@@ -429,6 +465,8 @@ export class PathaoApiService {
           errors: pathaoError?.errors,
           validation: pathaoError?.validation,
           responseData: pathaoError ?? axiosLike.response?.data,
+          // No response at all: timeout or network failure.
+          ...(axiosLike.response ? {} : { kind: 'unavailable' as const }),
         },
       );
     }
