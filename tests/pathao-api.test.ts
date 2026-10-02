@@ -118,6 +118,32 @@ describe("PathaoApiService", () => {
       delete process.env.PATHAO_BASE_URL;
     });
 
+    it("reads PATHAO_TIMEOUT in fromEnv()", () => {
+      process.env.PATHAO_TIMEOUT = "12345";
+      const svc = PathaoApiService.fromEnv();
+      expect((svc as any).pathaoClient.defaults.timeout).toBe(12345);
+      delete process.env.PATHAO_TIMEOUT;
+    });
+
+    // Multi-tenant: a merchant's blank field must not pick up the platform's
+    // own credentials from the environment.
+    it("explicit config never falls back to process.env", async () => {
+      process.env.PATHAO_CLIENT_ID = "platform-id";
+      process.env.PATHAO_TIMEOUT = "12345";
+      const svc = new PathaoApiService({ ...mockConfig, clientId: "" });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+
+      await expect(svc.getCities()).rejects.toThrow(/credentials are required/);
+      expect(innerMock.history.post).toHaveLength(0);
+      expect((svc as any).pathaoClient.defaults.timeout).toBe(30000);
+
+      delete process.env.PATHAO_CLIENT_ID;
+      delete process.env.PATHAO_TIMEOUT;
+      innerMock.restore();
+    });
+
     it("fromConfig() creates an instance", () => {
       const svc = PathaoApiService.fromConfig(mockConfig);
       expect(svc).toBeInstanceOf(PathaoApiService);

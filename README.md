@@ -124,6 +124,8 @@ PATHAO_PASSWORD=your-password
 PATHAO_TIMEOUT=30000
 ```
 
+Only `PathaoApiService.fromEnv()` reads these variables. `new PathaoApiService(config)`, `fromConfig()`, `sandbox()` and `production()` use exactly the config you pass, so a blank field fails validation instead of silently picking up another account's credentials from the environment (important when each tenant brings their own Pathao account).
+
 If you use `dotenv`, load it before initializing the SDK:
 
 ```typescript

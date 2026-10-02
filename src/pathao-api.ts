@@ -6,8 +6,8 @@
  * API Details (based on public documentation):
  * - Authentication: OAuth2 with client_id, client_secret, username, password
  * - All endpoints use /aladdin/api/v1/ prefix
- * - Base URL can be set via PATHAO_BASE_URL environment variable or constructor config
- * - Timeout can be set via PATHAO_TIMEOUT environment variable or constructor config
+ * - The constructor reads only the config it is given. Use fromEnv() to read
+ *   PATHAO_* environment variables (including PATHAO_TIMEOUT).
  *
  * Features implemented:
  * - Token-based authentication with refresh token support
@@ -109,18 +109,16 @@ export class PathaoApiService {
   };
 
   constructor(config: PathaoConfig, options?: { debug?: boolean; circuitBreaker?: CircuitBreakerConfig }) {
-    const parsedTimeout = parseInt(process.env.PATHAO_TIMEOUT || '', 10);
-    const envTimeout = Number.isNaN(parsedTimeout) || parsedTimeout <= 0 ? 30000 : parsedTimeout;
-    const timeout: number = config.timeout ?? envTimeout;
-
+    // Explicit config is read as given, never topped up from process.env: in
+    // a multi-tenant app a blank field would otherwise pick up the platform's
+    // own Pathao account. Env-based setup is fromEnv().
     this.config = {
-      baseURL: config.baseURL || process.env.PATHAO_BASE_URL || '',
-      timeout,
-      clientId: config.clientId || process.env.PATHAO_CLIENT_ID || '',
-      clientSecret:
-        config.clientSecret || process.env.PATHAO_CLIENT_SECRET || '',
-      username: config.username || process.env.PATHAO_USERNAME || '',
-      password: config.password || process.env.PATHAO_PASSWORD || '',
+      baseURL: config.baseURL ?? '',
+      timeout: config.timeout ?? 30000,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret,
+      username: config.username,
+      password: config.password,
     };
 
     this.debug = options?.debug || false;
@@ -261,7 +259,7 @@ export class PathaoApiService {
     if (!this.config.baseURL) {
       throw this.toPathaoApiError(
         new Error(
-          'Pathao API baseURL is required. You can provide it via constructor config or PATHAO_BASE_URL environment variable',
+          'Pathao API baseURL is required. Pass it in the config, or use PathaoApiService.fromEnv() with PATHAO_BASE_URL set',
         ),
         'Configuration validation failed',
       );
@@ -282,7 +280,7 @@ export class PathaoApiService {
     ) {
       throw this.toPathaoApiError(
         new Error(
-          'Pathao API credentials are required: clientId, clientSecret, username, password. You can provide them via constructor config or environment variables (PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME, PATHAO_PASSWORD)',
+          'Pathao API credentials are required: clientId, clientSecret, username, password. Pass them in the config, or use PathaoApiService.fromEnv() with PATHAO_CLIENT_ID, PATHAO_CLIENT_SECRET, PATHAO_USERNAME and PATHAO_PASSWORD set',
         ),
         'Configuration validation failed',
       );
@@ -713,6 +711,10 @@ export class PathaoApiService {
       password: process.env.PATHAO_PASSWORD || '',
       baseURL: process.env.PATHAO_BASE_URL || '',
     };
+    const timeout = parseInt(process.env.PATHAO_TIMEOUT || '', 10);
+    if (timeout > 0) {
+      config.timeout = timeout;
+    }
     return new PathaoApiService(config, options);
   }
 
