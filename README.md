@@ -757,9 +757,9 @@ Full history: [CHANGELOG.md](CHANGELOG.md).
 ### 2.0.x
 
 - Factory methods: `fromEnv()`, `fromConfig()`, `sandbox()`, `production()`
-- Debug logging (`debug` option) — `Authorization` header redacted
+- Debug logging (`debug` option) — `Authorization` header and tokens redacted; request bodies logged as field names only
 - Configurable circuit breaker (throws `PathaoApiError` code 503 when open)
-- Retry logic: 429 retried only when the server sends `Retry-After`; 5xx exponential backoff (max 2 retries)
+- Retry logic: 429 retried once only when the server sends `Retry-After` of 60s or less; 5xx exponential backoff (max 2 retries)
 - Deferred config validation — constructor never throws
 - HTTPS enforcement in `validateConfiguration()`
 - `User-Agent: pathao-merchant-sdk node/<version>` header
