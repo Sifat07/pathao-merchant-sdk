@@ -38,6 +38,10 @@ import {
   PathaoZoneResponse,
 } from './types';
 
+// Guard against a last_page that never ends; a merchant with more stores than
+// this would have to page with getStores() themselves.
+const MAX_STORE_PAGES = 100;
+
 // GETs, token grants and the read-only price-plan POST can be repeated
 // without side effects. Order and store creation cannot.
 function isSafeToRetry(config: { method?: string | undefined; url?: string | undefined }): boolean {
@@ -226,7 +230,8 @@ export class PathaoApiService {
         if (safeHeaders['Authorization']) safeHeaders['Authorization'] = 'Bearer [REDACTED]';
         console.log(`[Pathao SDK] ${config.method?.toUpperCase()} ${config.url}`, {
           headers: safeHeaders,
-          data: config.data,
+          // Field names only: order bodies carry recipient names, phones and addresses.
+          fields: config.data && typeof config.data === 'object' ? Object.keys(config.data) : undefined,
         });
       }
 
@@ -252,7 +257,19 @@ export class PathaoApiService {
         return response;
       },
       async (error) => {
-        if (error.response?.status === 401) {
+        // Errors thrown before the request went out (config validation, open
+        // breaker, a failed token grant) arrive here too: not an outage.
+        if (!error?.isAxiosError) {
+          return Promise.reject(error);
+        }
+
+        // A 401 on the token request itself must not take the re-auth retry:
+        // ensureAuthenticated() would wait on the grant that is waiting on
+        // this request, and hang forever. authenticate() counts its failures
+        // against the breaker, so this handler doesn't.
+        const isTokenRequest = Boolean(error.config?.url?.includes('/issue-token'));
+
+        if (error.response?.status === 401 && !isTokenRequest) {
           // Token expired, clear tokens and retry once
           this.accessToken = null;
           this.refreshToken = null;
@@ -270,8 +287,8 @@ export class PathaoApiService {
 
         // Pathao's gateway allows 60 requests per rolling minute and its 429
         // carries no Retry-After, so a blind short retry always fails. Retry
-        // once only when the server says how long to wait; otherwise hand the
-        // 429 to the caller.
+        // once only when the server says how long to wait, up to one rate
+        // window; otherwise hand the 429 to the caller.
         const retryAfterSeconds = parseInt(
           (error.response?.headers?.['retry-after'] as string | undefined) ?? '',
           10,
@@ -280,7 +297,8 @@ export class PathaoApiService {
           error.response?.status === 429 &&
           error.config &&
           !error.config._rateLimitRetry &&
-          retryAfterSeconds > 0
+          retryAfterSeconds > 0 &&
+          retryAfterSeconds <= 60
         ) {
           error.config._rateLimitRetry = true;
           await this.delay(retryAfterSeconds * 1000);
@@ -304,7 +322,8 @@ export class PathaoApiService {
         // Trip the circuit breaker on outages (network, 5xx) and auth failures.
         // A 429 is not an outage: counting it locked out every call for the
         // breaker timeout and re-tripped each time the rate window reset.
-        const tripsBreaker = status === undefined || status >= 500 || status === 401;
+        const tripsBreaker =
+          !isTokenRequest && (status === undefined || status >= 500 || status === 401);
         if (tripsBreaker) {
           this.handleCircuitBreaker();
         }
@@ -413,14 +432,9 @@ export class PathaoApiService {
         },
       );
 
-      this.accessToken = response.data.access_token;
-      this.refreshToken = response.data.refresh_token;
-      this.tokenExpiry = Date.now() + response.data.expires_in * 1000 - 60000; // 1 minute buffer
-
-      // Reset circuit breaker on successful auth
-      this.circuitBreaker.failures = 0;
-      this.circuitBreaker.isOpen = false;
+      this.storeTokens(response.data);
     } catch (error) {
+      // The one place a failed token grant counts against the breaker.
       this.handleCircuitBreaker();
       throw this.toPathaoApiError(error, 'Authentication failed');
     }
@@ -438,17 +452,28 @@ export class PathaoApiService {
         },
       );
 
-      this.accessToken = response.data.access_token;
-      this.refreshToken = response.data.refresh_token;
-      this.tokenExpiry = Date.now() + response.data.expires_in * 1000 - 60000; // 1 minute buffer
-
-      // Reset circuit breaker on successful refresh
-      this.circuitBreaker.failures = 0;
-      this.circuitBreaker.isOpen = false;
+      this.storeTokens(response.data);
     } catch (error) {
-      this.handleCircuitBreaker();
+      // Not counted: a failed refresh falls back to authenticate(), which counts.
       throw this.toPathaoApiError(error, 'Token refresh failed');
     }
+  }
+
+  private storeTokens(data: PathaoAuthResponse): void {
+    if (typeof data?.access_token !== 'string' || !data.access_token) {
+      throw new PathaoApiError('Pathao returned no access_token', { responseData: data });
+    }
+    // A missing or bad expires_in would give a NaN expiry and a fresh token
+    // grant before every call; assume an hour instead.
+    const seconds = Number(data.expires_in);
+    const lifetimeMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 3_600_000;
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token || null;
+    // Renew a minute early, or halfway through a very short lifetime.
+    this.tokenExpiry = Date.now() + lifetimeMs - Math.min(60_000, lifetimeMs / 2);
+
+    this.circuitBreaker.failures = 0;
+    this.circuitBreaker.isOpen = false;
   }
 
   private getErrorMessage(error: unknown): string {
@@ -571,11 +596,17 @@ export class PathaoApiService {
       const allStores: PathaoStore[] = [];
 
       do {
-        const response = await this.getStores(currentPage);
-        if (response.data?.data) {
-          allStores.push(...response.data.data);
+        if (currentPage > MAX_STORE_PAGES) {
+          throw new PathaoApiError(
+            `Store list still paging after ${MAX_STORE_PAGES} pages; refusing to keep fetching`,
+          );
         }
-        lastPage = response.data?.last_page || 1;
+        const response = await this.getStores(currentPage);
+        const stores = response.data?.data ?? [];
+        // An empty page is the end, whatever last_page claims.
+        if (stores.length === 0) break;
+        allStores.push(...stores);
+        lastPage = Number(response.data?.last_page) || 1;
         currentPage++;
       } while (currentPage <= lastPage);
 

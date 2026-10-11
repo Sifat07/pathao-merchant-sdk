@@ -563,6 +563,25 @@ describe("PathaoApiService", () => {
       expect(result).toHaveLength(1);
       expect(result[0].store_name).toBe("Test Store");
     });
+
+    it("getStoresAll() stops at an empty page, whatever last_page says", async () => {
+      mock
+        .onGet("/aladdin/api/v1/stores")
+        .replyOnce(200, { data: { ...storeListResponse.data, last_page: 100000 } })
+        .onGet("/aladdin/api/v1/stores")
+        .reply(200, { data: { data: [], last_page: 100000 } });
+      const result = await pathaoService.getStoresAll();
+      expect(result).toHaveLength(1);
+      expect(mock.history.get).toHaveLength(2);
+    });
+
+    it("getStoresAll() gives up after 100 pages", async () => {
+      mock
+        .onGet("/aladdin/api/v1/stores")
+        .reply(200, { data: { ...storeListResponse.data, last_page: 100000 } });
+      await expect(pathaoService.getStoresAll()).rejects.toThrow(/after 100 pages/);
+      expect(mock.history.get).toHaveLength(100);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -707,6 +726,15 @@ describe("PathaoApiService", () => {
       expect(
         mock.history.get.filter((r) => r.url === "/aladdin/api/v1/city-list"),
       ).toHaveLength(1);
+    });
+
+    it("does not wait out a Retry-After longer than one rate window", async () => {
+      mock
+        .onGet("/aladdin/api/v1/city-list")
+        .replyOnce(429, {}, { "retry-after": "3600" });
+      const err = (await pathaoService.getCities().catch((e) => e)) as PathaoApiError;
+      expect(err.status).toBe(429);
+      expect(mock.history.get).toHaveLength(1);
     });
 
     it("retries up to 2 times on 5xx errors with backoff", async () => {
@@ -866,6 +894,76 @@ describe("PathaoApiService", () => {
 
       jest.restoreAllMocks();
       innerMock.restore();
+    });
+
+    it("logs request body field names, not recipient details", async () => {
+      const svc = new PathaoApiService(mockConfig, { debug: true });
+      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onPost("/aladdin/api/v1/merchant/price-plan").reply(200, { data: {} });
+      const logs: unknown[][] = [];
+      jest.spyOn(console, "log").mockImplementation((...args) => logs.push(args));
+
+      await svc.calculatePrice({ store_id: 1, recipient_phone: "01712345678" } as any);
+
+      const allLogText = JSON.stringify(logs);
+      expect(allLogText).toContain("recipient_phone");
+      expect(allLogText).not.toContain("01712345678");
+
+      jest.restoreAllMocks();
+      innerMock.restore();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Token grant failures
+  // ---------------------------------------------------------------------------
+
+  describe("token grant failures", () => {
+    // A 401 on /issue-token used to take the re-auth retry, which waited on
+    // the grant that was waiting on it: the call never settled.
+    it("rejects instead of hanging when the credentials are wrong", async () => {
+      mock.onPost("/aladdin/api/v1/issue-token").reply(401, { message: "bad creds" });
+      await expect(pathaoService.getCities()).rejects.toThrow(/Authentication failed: bad creds/);
+    });
+
+    it("falls back to a password grant when the refresh token is rejected", async () => {
+      mock.onPost("/aladdin/api/v1/issue-token").reply((c) =>
+        JSON.parse(c.data).grant_type === "refresh_token"
+          ? [401, { message: "refresh expired" }]
+          : [200, authReply],
+      );
+      mock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+      await pathaoService.getCities();
+      pathaoService["tokenExpiry"] = Date.now() - 1;
+
+      await expect(pathaoService.getCities()).resolves.toEqual({ data: [] });
+      expect(mock.history.post.map((r) => JSON.parse(r.data).grant_type)).toEqual([
+        "password",
+        "refresh_token",
+        "password",
+      ]);
+    });
+
+    it("counts one failed grant once against the circuit breaker", async () => {
+      mock.onPost("/aladdin/api/v1/issue-token").networkError();
+      await pathaoService.getCities().catch(() => {});
+      expect(pathaoService["circuitBreaker"].failures).toBe(1);
+    });
+
+    it("assumes an hour when expires_in is missing, instead of re-authing every call", async () => {
+      mock
+        .onPost("/aladdin/api/v1/issue-token")
+        .reply(200, { access_token: "a", refresh_token: "r" });
+      mock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+      await pathaoService.getCities();
+      await pathaoService.getCities();
+      expect(mock.history.post).toHaveLength(1);
+    });
+
+    it("rejects a grant with no access_token", async () => {
+      mock.onPost("/aladdin/api/v1/issue-token").reply(200, { expires_in: 3600 });
+      await expect(pathaoService.getCities()).rejects.toThrow(/no access_token/);
     });
   });
 

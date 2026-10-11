@@ -71,12 +71,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sifat07/pathao-merchant-sdk.git"
+    "url": "git+https://github.com/Sifat07/pathao-merchant-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/sifat07/pathao-merchant-sdk/issues"
+    "url": "https://github.com/Sifat07/pathao-merchant-sdk/issues"
   },
-  "homepage": "https://github.com/sifat07/pathao-merchant-sdk#readme",
+  "homepage": "https://github.com/Sifat07/pathao-merchant-sdk#readme",
   "engines": {
     "node": ">=18.0.0"
   },
