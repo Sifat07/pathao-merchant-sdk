@@ -18,7 +18,6 @@
  * - City, zone, and area management
  */
 
-import axios, { AxiosError, AxiosInstance } from 'axios';
 import {
   PathaoAreaResponse,
   PathaoAuthResponse,
@@ -44,13 +43,22 @@ const MAX_STORE_PAGES = 100;
 
 // GETs, token grants and the read-only price-plan POST can be repeated
 // without side effects. Order and store creation cannot.
-function isSafeToRetry(config: { method?: string | undefined; url?: string | undefined }): boolean {
-  const url = config.url ?? '';
-  return (
-    config.method?.toLowerCase() === 'get' ||
-    url.includes('/issue-token') ||
-    url.includes('/merchant/price-plan')
-  );
+function isSafeToRetry(method: HttpMethod, path: string): boolean {
+  return method === 'GET' || path.includes('/issue-token') || path.includes('/merchant/price-plan');
+}
+
+type HttpMethod = 'GET' | 'POST';
+
+// A failed HTTP exchange: a non-2xx response, or none at all (status
+// undefined: timeout or network failure). Callers turn it into a PathaoApiError.
+class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly data?: unknown,
+  ) {
+    super(message);
+  }
 }
 
 export type PathaoErrorKind =
@@ -148,10 +156,12 @@ export interface PathaoClientOptions {
    * sharing the credentials. Default 0 (no spacing).
    */
   minRequestIntervalMs?: number;
+  /** fetch implementation to use. Default: the global fetch (Node 18+). */
+  fetch?: typeof fetch;
 }
 
 export class PathaoApiService {
-  private pathaoClient: AxiosInstance;
+  private fetchImpl: typeof fetch | undefined;
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiry: number | null = null;
@@ -193,143 +203,143 @@ export class PathaoApiService {
       isOpen: false,
     };
 
-    this.pathaoClient = axios.create({
-      ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
-      timeout: this.config.timeout,
-      // Pathao has no reason to redirect, and a 307/308 would re-send the
-      // issue-token body (client secret, password) to wherever it points.
-      // With 0, any 3xx rejects like an error status.
-      maxRedirects: 0,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': `pathao-merchant-sdk node/${process.version}`,
-      },
-    });
+    this.fetchImpl = options?.fetch;
+  }
 
-    // Add request interceptor for authentication
-    this.pathaoClient.interceptors.request.use(async (config) => {
+  // One call to Pathao, with rate spacing, auth, one re-auth on 401, one
+  // Retry-After wait on 429, two backoff retries on a 5xx for requests that
+  // are safe to repeat, and the circuit breaker. Every attempt, retries
+  // included, waits for a rate slot.
+  private async request<T>(
+    method: HttpMethod,
+    path: string,
+    { body, params }: { body?: unknown; params?: Record<string, string | number> } = {},
+  ): Promise<T> {
+    const isTokenRequest = path.includes('/issue-token');
+    const query = params ? `?${new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))}` : '';
+    let reauthed = false;
+    let rateLimitRetried = false;
+    let serverRetries = 0;
+
+    for (;;) {
       // Every request counts against Pathao's limit, token grants and
       // retries included, so space them all.
       await this.waitForRequestSlot();
 
-      // Skip auth for token requests to prevent infinite loops
-      if (config.url?.includes('/issue-token')) {
-        return config;
-      }
-
-      // Validate configuration on first API call
-      this.validateConfiguration();
-      await this.ensureAuthenticated();
-      if (this.accessToken) {
-        config.headers.Authorization = `Bearer ${this.accessToken}`;
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        'User-Agent': `pathao-merchant-sdk node/${process.version}`,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      };
+      // Token requests skip auth, or the grant would wait on itself.
+      if (!isTokenRequest) {
+        // Validate configuration on first API call
+        this.validateConfiguration();
+        await this.ensureAuthenticated();
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
       }
 
       if (this.debug) {
-        const safeHeaders = { ...config.headers } as Record<string, unknown>;
+        const safeHeaders: Record<string, string> = { ...headers };
         if (safeHeaders['Authorization']) safeHeaders['Authorization'] = 'Bearer [REDACTED]';
-        console.log(`[Pathao SDK] ${config.method?.toUpperCase()} ${config.url}`, {
+        console.log(`[Pathao SDK] ${method} ${path}`, {
           headers: safeHeaders,
           // Field names only: order bodies carry recipient names, phones and addresses.
-          fields: config.data && typeof config.data === 'object' ? Object.keys(config.data) : undefined,
+          fields: body && typeof body === 'object' ? Object.keys(body) : undefined,
         });
       }
 
-      return config;
-    });
+      let status: number;
+      let retryAfter: string | null;
+      let data: unknown;
+      // AbortSignal.timeout covers reading the body too: a proxy can send
+      // headers and then stall.
+      const signal = AbortSignal.timeout(this.config.timeout);
+      try {
+        const res = await (this.fetchImpl ?? fetch)(`${(this.config.baseURL ?? '').replace(/\/+$/, '')}${path}${query}`, {
+          method,
+          headers,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          // Pathao has no reason to redirect, and a 307/308 would re-send the
+          // issue-token body (client secret, password) to wherever it points.
+          // 'manual' hands back the 3xx, which fails like any error status.
+          redirect: 'manual',
+          signal,
+        });
+        status = res.status;
+        retryAfter = res.headers.get('retry-after');
+        const text = await res.text();
+        try {
+          data = text ? JSON.parse(text) : '';
+        } catch {
+          data = text; // not JSON: hand back the raw text
+        }
+      } catch (cause) {
+        // No response: timeout or network failure. An outage, so it counts
+        // against the breaker; authenticate() counts token grants itself.
+        if (!isTokenRequest) this.handleCircuitBreaker();
+        throw new HttpError(
+          signal.aborted
+            ? `timeout of ${this.config.timeout}ms exceeded`
+            : `request to ${path} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
 
-    // Add response interceptor for error handling
-    this.pathaoClient.interceptors.response.use(
-      (response) => {
+      if (status >= 200 && status < 300) {
         // Reset circuit breaker on successful request
         this.circuitBreaker.failures = 0;
         this.circuitBreaker.isOpen = false;
-
         if (this.debug) {
           // Token grants carry access_token / refresh_token; never log them.
-          const isTokenResponse = response.config.url?.includes('/issue-token');
-          console.log(`[Pathao SDK] Response ${response.status}`, {
-            url: response.config.url,
-            data: isTokenResponse ? '[REDACTED]' : response.data,
-          });
+          console.log(`[Pathao SDK] Response ${status}`, { url: path, data: isTokenRequest ? '[REDACTED]' : data });
         }
+        return data as T;
+      }
 
-        return response;
-      },
-      async (error) => {
-        // Errors thrown before the request went out (config validation, open
-        // breaker, a failed token grant) arrive here too: not an outage.
-        if (!error?.isAxiosError) {
-          return Promise.reject(error);
+      // A 401 on the token request itself must not take the re-auth retry:
+      // ensureAuthenticated() would wait on the grant that is waiting on
+      // this request, and hang forever. authenticate() counts its failures
+      // against the breaker, so this path doesn't.
+      if (status === 401 && !isTokenRequest) {
+        // Token expired, clear tokens and retry once
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.tokenExpiry = null;
+        if (!reauthed) {
+          reauthed = true;
+          continue;
         }
+      }
 
-        // A 401 on the token request itself must not take the re-auth retry:
-        // ensureAuthenticated() would wait on the grant that is waiting on
-        // this request, and hang forever. authenticate() counts its failures
-        // against the breaker, so this handler doesn't.
-        const isTokenRequest = Boolean(error.config?.url?.includes('/issue-token'));
+      // Pathao's gateway allows 60 requests per rolling minute and its 429
+      // carries no Retry-After, so a blind short retry always fails. Retry
+      // once only when the server says how long to wait, up to one rate
+      // window; otherwise hand the 429 to the caller.
+      const retryAfterSeconds = parseInt(retryAfter ?? '', 10);
+      if (status === 429 && !rateLimitRetried && retryAfterSeconds > 0 && retryAfterSeconds <= 60) {
+        rateLimitRetried = true;
+        await this.delay(retryAfterSeconds * 1000);
+        continue;
+      }
 
-        if (error.response?.status === 401 && !isTokenRequest) {
-          // Token expired, clear tokens and retry once
-          this.accessToken = null;
-          this.refreshToken = null;
-          this.tokenExpiry = null;
+      // Retry transient 5xx errors with exponential backoff (max 2 retries),
+      // but only for requests that are safe to repeat. A 5xx on a create
+      // (a gateway 502/504 in front of a slow success) may already have
+      // booked the consignment; re-POSTing can book it again.
+      if (status >= 500 && isSafeToRetry(method, path) && serverRetries < 2) {
+        await this.delay(Math.min(500 * 2 ** serverRetries, 4000));
+        serverRetries++;
+        continue;
+      }
 
-          if (error.config && !error.config._retry) {
-            error.config._retry = true;
-            await this.ensureAuthenticated();
-            if (this.accessToken) {
-              error.config.headers.Authorization = `Bearer ${this.accessToken}`;
-            }
-            return this.pathaoClient.request(error.config);
-          }
-        }
-
-        // Pathao's gateway allows 60 requests per rolling minute and its 429
-        // carries no Retry-After, so a blind short retry always fails. Retry
-        // once only when the server says how long to wait, up to one rate
-        // window; otherwise hand the 429 to the caller.
-        const retryAfterSeconds = parseInt(
-          (error.response?.headers?.['retry-after'] as string | undefined) ?? '',
-          10,
-        );
-        if (
-          error.response?.status === 429 &&
-          error.config &&
-          !error.config._rateLimitRetry &&
-          retryAfterSeconds > 0 &&
-          retryAfterSeconds <= 60
-        ) {
-          error.config._rateLimitRetry = true;
-          await this.delay(retryAfterSeconds * 1000);
-          return this.pathaoClient.request(error.config);
-        }
-
-        // Retry transient 5xx errors with exponential backoff (max 2 retries),
-        // but only for requests that are safe to repeat. A 5xx on a create
-        // (a gateway 502/504 in front of a slow success) may already have
-        // booked the consignment; re-POSTing can book it again.
-        const status: number | undefined = error.response?.status;
-        if (status !== undefined && status >= 500 && error.config && isSafeToRetry(error.config)) {
-          const retryCount: number = (error.config._retryCount as number | undefined) ?? 0;
-          if (retryCount < 2) {
-            error.config._retryCount = retryCount + 1;
-            await this.delay(Math.min(500 * 2 ** retryCount, 4000));
-            return this.pathaoClient.request(error.config);
-          }
-        }
-
-        // Trip the circuit breaker on outages (network, 5xx) and auth failures.
-        // A 429 is not an outage: counting it locked out every call for the
-        // breaker timeout and re-tripped each time the rate window reset.
-        const tripsBreaker =
-          !isTokenRequest && (status === undefined || status >= 500 || status === 401);
-        if (tripsBreaker) {
-          this.handleCircuitBreaker();
-        }
-        return Promise.reject(error);
-      },
-    );
+      // Trip the circuit breaker on outages (5xx) and auth failures.
+      // A 429 is not an outage: counting it locked out every call for the
+      // breaker timeout and re-tripped each time the rate window reset.
+      if (!isTokenRequest && (status >= 500 || status === 401)) {
+        this.handleCircuitBreaker();
+      }
+      throw new HttpError(`Request failed with status code ${status}`, status, data);
+    }
   }
 
   private validateConfiguration(): void {
@@ -421,18 +431,17 @@ export class PathaoApiService {
 
   private async authenticate(): Promise<void> {
     try {
-      const response = await this.pathaoClient.post<PathaoAuthResponse>(
-        '/aladdin/api/v1/issue-token',
-        {
+      const data = await this.request<PathaoAuthResponse>('POST', '/aladdin/api/v1/issue-token', {
+        body: {
           client_id: this.config.clientId,
           client_secret: this.config.clientSecret,
           username: this.config.username,
           password: this.config.password,
           grant_type: 'password',
         },
-      );
+      });
 
-      this.storeTokens(response.data);
+      this.storeTokens(data);
     } catch (error) {
       // The one place a failed token grant counts against the breaker.
       this.handleCircuitBreaker();
@@ -442,17 +451,16 @@ export class PathaoApiService {
 
   private async refreshAccessToken(): Promise<void> {
     try {
-      const response = await this.pathaoClient.post<PathaoAuthResponse>(
-        '/aladdin/api/v1/issue-token',
-        {
+      const data = await this.request<PathaoAuthResponse>('POST', '/aladdin/api/v1/issue-token', {
+        body: {
           client_id: this.config.clientId,
           client_secret: this.config.clientSecret,
           refresh_token: this.refreshToken,
           grant_type: 'refresh_token',
         },
-      );
+      });
 
-      this.storeTokens(response.data);
+      this.storeTokens(data);
     } catch (error) {
       // Not counted: a failed refresh falls back to authenticate(), which counts.
       throw this.toPathaoApiError(error, 'Token refresh failed');
@@ -476,50 +484,29 @@ export class PathaoApiService {
     this.circuitBreaker.isOpen = false;
   }
 
-  private getErrorMessage(error: unknown): string {
-    if (error instanceof AxiosError) {
-      const pathaoError = error.response?.data as PathaoError;
-      if (pathaoError?.message) {
-        return pathaoError.message;
-      }
-      return error.message;
-    }
-    if (error instanceof Error) return error.message;
-    return 'Unknown error';
-  }
-
   private toPathaoApiError(error: unknown, context: string): PathaoApiError {
     if (error instanceof PathaoApiError) {
       return error;
     }
 
-    const messageFallback = this.getErrorMessage(error);
-    const hasResponse = (e: unknown): e is { response?: AxiosError['response'] } =>
-      typeof e === 'object' && e !== null && 'response' in e;
-    const axiosLike =
-      error instanceof AxiosError
-        ? error
-        : hasResponse(error)
-          ? error
-          : null;
-    if (axiosLike) {
-      const pathaoError = axiosLike.response?.data as PathaoError | undefined;
+    if (error instanceof HttpError) {
+      const pathaoError = error.data as PathaoError | undefined;
       return new PathaoApiError(
-        `${context}: ${pathaoError?.message || messageFallback}`,
+        `${context}: ${pathaoError?.message || error.message}`,
         {
-          status: axiosLike.response?.status,
-          code: pathaoError?.code ?? axiosLike.response?.status,
+          status: error.status,
+          code: pathaoError?.code ?? error.status,
           type: pathaoError?.type,
           errors: pathaoError?.errors,
           validation: pathaoError?.validation,
-          responseData: pathaoError ?? axiosLike.response?.data,
+          responseData: pathaoError ?? error.data,
           // No response at all: timeout or network failure.
-          ...(axiosLike.response ? {} : { kind: 'unavailable' as const }),
+          ...(error.status === undefined ? { kind: 'unavailable' as const } : {}),
         },
       );
     }
 
-    return new PathaoApiError(`${context}: ${messageFallback}`);
+    return new PathaoApiError(`${context}: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 
   private handleCircuitBreaker(): void {
@@ -550,11 +537,7 @@ export class PathaoApiService {
     orderData: PathaoOrderRequest,
   ): Promise<PathaoOrderResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoOrderResponse>(
-        '/aladdin/api/v1/orders',
-        PathaoApiService.prepareOrder(orderData),
-      );
-      return response.data;
+      return await this.request<PathaoOrderResponse>('POST', '/aladdin/api/v1/orders', { body: PathaoApiService.prepareOrder(orderData) });
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to create Pathao order');
     }
@@ -565,11 +548,7 @@ export class PathaoApiService {
     storeData: PathaoStoreRequest,
   ): Promise<PathaoStoreCreateResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoStoreCreateResponse>(
-        '/aladdin/api/v1/stores',
-        storeData,
-      );
-      return response.data;
+      return await this.request<PathaoStoreCreateResponse>('POST', '/aladdin/api/v1/stores', { body: storeData });
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to create Pathao store');
     }
@@ -578,11 +557,7 @@ export class PathaoApiService {
   // Official Pathao API: Get Store List
   async getStores(page?: number): Promise<PathaoStoreListResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoStoreListResponse>(
-        '/aladdin/api/v1/stores',
-        page !== undefined ? { params: { page } } : undefined,
-      );
-      return response.data;
+      return await this.request<PathaoStoreListResponse>('GET', '/aladdin/api/v1/stores', page !== undefined ? { params: { page } } : {});
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao stores');
     }
@@ -621,11 +596,7 @@ export class PathaoApiService {
     priceData: PathaoPriceRequest,
   ): Promise<PathaoPriceResponse> {
     try {
-      const response = await this.pathaoClient.post<PathaoPriceResponse>(
-        '/aladdin/api/v1/merchant/price-plan',
-        priceData,
-      );
-      return response.data;
+      return await this.request<PathaoPriceResponse>('POST', '/aladdin/api/v1/merchant/price-plan', { body: priceData });
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to calculate Pathao price');
     }
@@ -634,10 +605,7 @@ export class PathaoApiService {
   // Official Pathao API: Get Cities
   async getCities(): Promise<PathaoCityResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoCityResponse>(
-        '/aladdin/api/v1/city-list',
-      );
-      return response.data;
+      return await this.request<PathaoCityResponse>('GET', '/aladdin/api/v1/city-list');
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao cities');
     }
@@ -646,10 +614,7 @@ export class PathaoApiService {
   // Official Pathao API: Get Zones for a City
   async getZones(cityId: number): Promise<PathaoZoneResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoZoneResponse>(
-        `/aladdin/api/v1/cities/${cityId}/zone-list`,
-      );
-      return response.data;
+      return await this.request<PathaoZoneResponse>('GET', `/aladdin/api/v1/cities/${cityId}/zone-list`);
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao zones');
     }
@@ -658,10 +623,7 @@ export class PathaoApiService {
   // Official Pathao API: Get Areas for a Zone
   async getAreas(zoneId: number): Promise<PathaoAreaResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoAreaResponse>(
-        `/aladdin/api/v1/zones/${zoneId}/area-list`,
-      );
-      return response.data;
+      return await this.request<PathaoAreaResponse>('GET', `/aladdin/api/v1/zones/${zoneId}/area-list`);
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao areas');
     }
@@ -672,10 +634,7 @@ export class PathaoApiService {
     consignmentId: string,
   ): Promise<PathaoOrderStatusResponse> {
     try {
-      const response = await this.pathaoClient.get<PathaoOrderStatusResponse>(
-        `/aladdin/api/v1/orders/${encodeURIComponent(consignmentId)}/info`,
-      );
-      return response.data;
+      return await this.request<PathaoOrderStatusResponse>('GET', `/aladdin/api/v1/orders/${encodeURIComponent(consignmentId)}/info`);
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to fetch Pathao order status');
     }
@@ -687,9 +646,7 @@ export class PathaoApiService {
   ): Promise<PathaoBulkOrderResponse> {
     try {
       const prepared = orders.map((order, i) => PathaoApiService.prepareOrder(order, `orders[${i}]: `));
-      const response = await this.pathaoClient.post<PathaoBulkOrderResponse>(
-        '/aladdin/api/v1/orders/bulk', { orders: prepared });
-      return response.data;
+      return await this.request<PathaoBulkOrderResponse>('POST', '/aladdin/api/v1/orders/bulk', { body: { orders: prepared } });
     } catch (error: unknown) {
       throw this.toPathaoApiError(error, 'Failed to create bulk Pathao orders');
     }

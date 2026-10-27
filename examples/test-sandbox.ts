@@ -3,7 +3,7 @@
  * Tests the SDK against official Pathao sandbox environment
  */
 
-import { DeliveryType, ItemType, PathaoApiService } from '../src/index';
+import { DeliveryType, ItemType, PathaoApiError, PathaoApiService } from '../src/index';
 
 async function testSandboxAPI() {
   console.log('🧪 Testing Pathao SDK against Sandbox API\n');
@@ -151,11 +151,8 @@ async function testSandboxAPI() {
 
   } catch (error: unknown) {
     console.error('\n❌ Test Error:', error instanceof Error ? error.message : String(error));
-    if (error instanceof Error && 'response' in error) {
-      const axiosLike = error as unknown as { response?: { data?: unknown } };
-      if (axiosLike.response?.data) {
-        console.error('API Response:', JSON.stringify(axiosLike.response.data, null, 2));
-      }
+    if (error instanceof PathaoApiError && error.responseData) {
+      console.error('API Response:', JSON.stringify(error.responseData, null, 2));
     }
     process.exit(1);
   }
