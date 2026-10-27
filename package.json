@@ -102,7 +102,9 @@
   "pnpm": {
     "overrides": {
       "minimatch@>=9.0.0 <9.0.7": "^9.0.7",
-      "esbuild@>=0.27.3 <0.28.1": "^0.28.1"
+      "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
+      "handlebars@<4.7.10": "^4.7.10",
+      "follow-redirects@<1.16.1": "^1.16.1"
     },
     "onlyBuiltDependencies": [
       "esbuild"
