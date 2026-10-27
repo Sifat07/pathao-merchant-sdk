@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v3.0.3...pathao-merchant-sdk-v3.1.0) (2026-10-27)
+
+
+### Features
+
+* replace axios with native fetch ([#29](https://github.com/Sifat07/pathao-merchant-sdk/issues/29)) ([68641b9](https://github.com/Sifat07/pathao-merchant-sdk/commit/68641b92795d5cd1de04510516e31c4b4087bf27))
+
 ## [3.0.3](https://github.com/Sifat07/pathao-merchant-sdk/compare/pathao-merchant-sdk-v3.0.2...pathao-merchant-sdk-v3.0.3) (2026-10-27)
 
 
