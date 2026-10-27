@@ -9,5 +9,4 @@ export default defineConfig({
   minify: false,
   splitting: false,
   treeshake: true,
-  external: ['axios'],
 });

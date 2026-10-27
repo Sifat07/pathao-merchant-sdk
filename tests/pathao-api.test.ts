@@ -1,4 +1,4 @@
-import MockAdapter from "axios-mock-adapter";
+import { FetchMock } from "./fetch-mock";
 import {
   DeliveryType,
   ItemType,
@@ -8,9 +8,10 @@ import {
 
 describe("PathaoApiService", () => {
   let pathaoService: PathaoApiService;
-  let mock: MockAdapter;
+  let mock: FetchMock;
   const mockConfig = {
-    baseURL: "https://api-hermes.pathao.com",
+    // .invalid never resolves: a request that misses the mock can't reach Pathao.
+    baseURL: "https://pathao.invalid",
     clientId: "test-client-id",
     clientSecret: "test-client-secret",
     username: "test-username",
@@ -25,7 +26,7 @@ describe("PathaoApiService", () => {
 
   beforeEach(() => {
     pathaoService = new PathaoApiService(mockConfig);
-    mock = new MockAdapter((pathaoService as any).pathaoClient);
+    mock = new FetchMock(pathaoService);
     mock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
   });
 
@@ -63,7 +64,7 @@ describe("PathaoApiService", () => {
         username: "u",
         password: "p",
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       await expect(svc.getCities()).rejects.toBeInstanceOf(PathaoApiError);
       innerMock.restore();
@@ -77,7 +78,7 @@ describe("PathaoApiService", () => {
         username: "u",
         password: "p",
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       await expect(svc.getCities()).rejects.toBeInstanceOf(PathaoApiError);
       innerMock.restore();
@@ -91,7 +92,7 @@ describe("PathaoApiService", () => {
         username: "",
         password: "",
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       await expect(svc.getCities()).rejects.toBeInstanceOf(PathaoApiError);
       innerMock.restore();
@@ -121,7 +122,7 @@ describe("PathaoApiService", () => {
     it("reads PATHAO_TIMEOUT in fromEnv()", () => {
       process.env.PATHAO_TIMEOUT = "12345";
       const svc = PathaoApiService.fromEnv();
-      expect((svc as any).pathaoClient.defaults.timeout).toBe(12345);
+      expect((svc as any).config.timeout).toBe(12345);
       delete process.env.PATHAO_TIMEOUT;
     });
 
@@ -131,13 +132,13 @@ describe("PathaoApiService", () => {
       process.env.PATHAO_CLIENT_ID = "platform-id";
       process.env.PATHAO_TIMEOUT = "12345";
       const svc = new PathaoApiService({ ...mockConfig, clientId: "" });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
 
       await expect(svc.getCities()).rejects.toThrow(/credentials are required/);
       expect(innerMock.history.post).toHaveLength(0);
-      expect((svc as any).pathaoClient.defaults.timeout).toBe(30000);
+      expect((svc as any).config.timeout).toBe(30000);
 
       delete process.env.PATHAO_CLIENT_ID;
       delete process.env.PATHAO_TIMEOUT;
@@ -809,7 +810,7 @@ describe("PathaoApiService", () => {
       const svc = new PathaoApiService(mockConfig, {
         circuitBreaker: { threshold: 2, timeout: 60000 },
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       // Auth fails repeatedly to trigger circuit breaker
       innerMock
         .onPost("/aladdin/api/v1/issue-token")
@@ -833,7 +834,7 @@ describe("PathaoApiService", () => {
       const svc = new PathaoApiService(mockConfig, {
         circuitBreaker: { threshold: 2, timeout: 60000 },
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
       innerMock.onGet("/aladdin/api/v1/city-list").replyOnce(429, {});
@@ -851,7 +852,7 @@ describe("PathaoApiService", () => {
       const svc = new PathaoApiService(mockConfig, {
         circuitBreaker: { threshold: 1, timeout: 60000 },
       });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock.onGet("/aladdin/api/v1/city-list").reply(500, {});
 
@@ -870,7 +871,7 @@ describe("PathaoApiService", () => {
   describe("debug mode", () => {
     it("logs requests and responses without exposing the Authorization token", async () => {
       const svc = new PathaoApiService(mockConfig, { debug: true });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock
         .onGet("/aladdin/api/v1/city-list")
@@ -898,7 +899,7 @@ describe("PathaoApiService", () => {
 
     it("logs request body field names, not recipient details", async () => {
       const svc = new PathaoApiService(mockConfig, { debug: true });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock.onPost("/aladdin/api/v1/merchant/price-plan").reply(200, { data: {} });
       const logs: unknown[][] = [];
@@ -970,7 +971,7 @@ describe("PathaoApiService", () => {
   describe("minRequestIntervalMs", () => {
     it("spaces concurrent requests, token grant included", async () => {
       const svc = new PathaoApiService(mockConfig, { minRequestIntervalMs: 50 });
-      const innerMock = new MockAdapter((svc as any).pathaoClient);
+      const innerMock = new FetchMock(svc);
       innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
       innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
 
@@ -984,8 +985,77 @@ describe("PathaoApiService", () => {
 
   describe("redirects", () => {
     // A 307/308 re-sends the issue-token body (client secret, password).
-    it("never follows redirects", () => {
-      expect((pathaoService as any).pathaoClient.defaults.maxRedirects).toBe(0);
+    it("never follows redirects, and a 3xx is not retryable", async () => {
+      mock
+        .onPost("/aladdin/api/v1/issue-token")
+        .reply(307, {}, { location: "https://elsewhere.invalid/issue-token" });
+      const err = (await pathaoService.getCities().catch((e) => e)) as PathaoApiError;
+      expect(err).toBeInstanceOf(PathaoApiError);
+      expect(err.status).toBe(307);
+      expect(err.kind).toBe("unexpected");
+      expect(err.retryable).toBe(false);
+      expect(mock.history.post).toHaveLength(1);
+      expect(mock.history.post[0]!.redirect).toBe("manual");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // HTTP transport (fetch)
+  // ---------------------------------------------------------------------------
+
+  describe("transport", () => {
+    it("sends JSON headers, and the bearer token on API calls", async () => {
+      mock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+      mock.onPost("/aladdin/api/v1/merchant/price-plan").reply(200, { data: {} });
+      await pathaoService.getCities();
+      await pathaoService.calculatePrice({ store_id: 1 } as any);
+
+      const [grant, price] = mock.history.post;
+      const get = mock.history.get[0]!;
+      expect(grant!.headers["authorization"]).toBeUndefined();
+      expect(grant!.headers["content-type"]).toBe("application/json");
+      expect(get.headers["authorization"]).toBe("Bearer mock-access-token");
+      expect(get.headers["accept"]).toBe("application/json");
+      expect(get.headers["user-agent"]).toMatch(/^pathao-merchant-sdk node\//);
+      expect(get.headers["content-type"]).toBeUndefined();
+      expect(JSON.parse(price!.data!)).toEqual({ store_id: 1 });
+    });
+
+    it("sends getStores(page) as a query parameter", async () => {
+      mock.onGet("/aladdin/api/v1/stores").reply(200, { data: { data: [] } });
+      await pathaoService.getStores(2);
+      expect(mock.history.get[0]!.query).toBe("?page=2");
+    });
+
+    it("joins a baseURL with a trailing slash without doubling it", async () => {
+      const svc = new PathaoApiService({ ...mockConfig, baseURL: "https://pathao.invalid/" });
+      const innerMock = new FetchMock(svc);
+      innerMock.onPost("/aladdin/api/v1/issue-token").reply(200, authReply);
+      innerMock.onGet("/aladdin/api/v1/city-list").reply(200, { data: [] });
+      await expect(svc.getCities()).resolves.toEqual({ data: [] });
+    });
+
+    it("uses the fetch passed in options, and a timeout is unavailable and retryable", async () => {
+      const neverAnswers: typeof fetch = (_input, init) =>
+        new Promise((_resolve, reject) =>
+          init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason)),
+        );
+      const svc = new PathaoApiService({ ...mockConfig, timeout: 20 }, { fetch: neverAnswers });
+      const err = (await svc.getCities().catch((e) => e)) as PathaoApiError;
+      expect(err).toBeInstanceOf(PathaoApiError);
+      expect(err.kind).toBe("unavailable");
+      expect(err.retryable).toBe(true);
+      expect(err.message).toMatch(/timeout of 20ms exceeded/);
+    });
+
+    it("passes a non-JSON 2xx body through as text", async () => {
+      const svc = new PathaoApiService(mockConfig, {
+        fetch: async (input) =>
+          String(input).includes("/issue-token")
+            ? new Response(JSON.stringify(authReply), { status: 200 })
+            : new Response("<html>ok</html>", { status: 200 }),
+      });
+      await expect(svc.getCities()).resolves.toBe("<html>ok</html>");
     });
   });
 

@@ -4,7 +4,7 @@ import {
   PathaoApiService,
   toLifecycleStatus,
 } from '../src/index';
-import MockAdapter from 'axios-mock-adapter';
+import { FetchMock } from './fetch-mock';
 
 describe('toLifecycleStatus', () => {
   it('maps webhook events and slug spellings to the same status', () => {
@@ -52,15 +52,15 @@ describe('toLifecycleStatus', () => {
 
 describe('PathaoApiError kind', () => {
   const config = {
-    baseURL: 'https://api-hermes.pathao.com',
+    baseURL: 'https://pathao.invalid',
     clientId: 'id',
     clientSecret: 'sec',
     username: 'u',
     password: 'p',
   };
 
-  async function errorFor(reply: (m: MockAdapter) => void, svc = new PathaoApiService(config)) {
-    const mock = new MockAdapter((svc as any).pathaoClient);
+  async function errorFor(reply: (m: FetchMock) => void, svc = new PathaoApiService(config)) {
+    const mock = new FetchMock(svc);
     mock.onPost('/aladdin/api/v1/issue-token').reply(200, { access_token: 'a', refresh_token: 'r', expires_in: 3600 });
     reply(mock);
     const err = (await svc.getOrderStatus('C1').catch((e) => e)) as PathaoApiError;
