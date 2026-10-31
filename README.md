@@ -12,6 +12,11 @@ An **unofficial** TypeScript SDK for the [Pathao Courier Merchant API](https://m
 
 > **Disclaimer:** This is a community-maintained package, not an official Pathao product. It is not affiliated with or endorsed by Pathao.
 
+- **Zero runtime dependencies:** Node's built-in `fetch` (Node 18+), or pass your own via the `fetch` option. ESM and CommonJS, with types.
+- **Typed errors:** every failure carries a `kind`, so you can tell a retryable outage from a rejected request.
+- **Webhooks:** a separate `pathao-merchant-sdk/webhooks` entry point with framework-agnostic helpers.
+- **Shipping with Steadfast too?** See the sibling [Steadfast Merchant SDK](https://github.com/Sifat07/steadfast-merchant-sdk).
+
 ## Table of Contents
 
 - [Requirements](#requirements)
